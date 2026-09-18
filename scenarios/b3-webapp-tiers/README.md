@@ -71,6 +71,12 @@ The documented read-only example enumerates actions and so does not include them
 - [`expected/probes.yaml`](./expected/probes.yaml) — the **operator** tier, the one whose allow/deny boundary matters most. This is the file `scenario.yaml` points at and the one CI runs.
 - [`expected/probes-admin.yaml`](./expected/probes-admin.yaml) and [`expected/probes-readonly.yaml`](./expected/probes-readonly.yaml) — same schema, same harness outputs, ready to wire up when the probes contract grows multi-role support. They are not executed by CI today; treat those two tiers as statically validated only.
 
+### Why there are no `real` probes
+
+All expectations here are `kind: simulate` (`iam:SimulatePrincipalPolicy`). Real `aidevops` API calls require an account that has been **onboarded to AWS DevOps Agent**: in an account with no onboarding, even reads such as `devops-agent list-asset-types` return `AccessDeniedException` — verified with account Administrator credentials, so the service fail-closes before IAM evaluation is observable. An earlier revision of this scenario carried a `real-operator-list-asset-types` probe; it failed for exactly that reason while its simulate twin (`sim-operator-list-asset-types`) reported `decision=allowed`, so the real probe was removed.
+
+This is known **service-side** behavior, not an IAM defect. If you run these probes in your own onboarded account, a real read probe is a useful addition; in the shared sandbox it only produces a false negative.
+
 ## Not included (by design)
 
 - `iam:PassRole` / `iam:CreateServiceLinkedRole` and Agent Space provisioning → scenario `b2`

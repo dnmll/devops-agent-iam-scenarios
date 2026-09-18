@@ -134,14 +134,14 @@ probes:
     resource: "*"
     expect: implicitDeny
 
-  # ---- real: authoritative allow-path (assumes role_under_test) ----
-  # boto3/CLI service name is devops-agent; "aidevops" is only the IAM namespace.
-  - name: real-operator-list-asset-types
-    kind: real
-    service: devops-agent
-    operation: list_asset_types
-    params: {}
-    expect: success
+  # ---- no `real` probes in this scenario ----
+  # A real aidevops read (e.g. devops-agent list_asset_types) fails with
+  # AccessDeniedException in a sandbox account that has never been onboarded to
+  # DevOps Agent — the service fail-closes regardless of IAM, verified with
+  # account Administrator credentials. That is service-side behavior, not a
+  # policy defect, so the allow path is asserted by the simulate twin
+  # (sim-operator-list-asset-types) instead. See README → "Live validation
+  # coverage".
 
   # ---- other tiers ----
   # probes.schema.json carries a single `role_under_test`, so one live run can
