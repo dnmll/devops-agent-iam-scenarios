@@ -1,0 +1,77 @@
+id: a1-agentspace-role
+plane: A
+title: Agent Space role (primary account) — trust policy + Resource Explorer SLR inline
+description: >
+  The Plane-A role AWS DevOps Agent assumes in the account the Agent Space lives
+  in. Two hand-written artifacts: the trust policy that lets
+  aidevops.amazonaws.com assume the role while closing the confused-deputy hole
+  (aws:SourceAccount pins the caller to your account, ArnLike aws:SourceArn pins
+  it to an Agent Space ARN in it), and the one inline permission the managed
+  policy does not carry — iam:CreateServiceLinkedRole for the AWS Resource
+  Explorer SLR, pinned by iam:AWSServiceName so it can never become a
+  create-any-service-linked-role primitive. The permissions half of the role is
+  the AWS managed policy AIDevOpsAgentAccessPolicy (attached by ARN, never
+  copied into this repo — it is 30KB+ and AWS revises it), or the
+  restricted-template variant for customers who need a narrower read surface.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-creating-an-agent-space.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/trust-policy.json
+  - policies/slr-inline-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+required_conditions:
+  # The confused-deputy pair. Both keys are asserted so an edit that drops
+  # either one fails `python3 -m tools.checks`: without aws:SourceAccount any
+  # AWS account's Agent Space could make the service assume this role, and
+  # without aws:SourceArn any DevOps Agent resource in *your* account (present
+  # or future, of any type) could.
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceAccount
+    expected: "111122223333"
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceArn
+    expected: arn:aws:aidevops:us-east-1:111122223333:agentspace/*
+  # iam:AWSServiceName is the whole least-privilege story of the inline policy:
+  # iam:CreateServiceLinkedRole without it creates a service-linked role for ANY
+  # AWS service, each with its own service-managed permissions.
+  - artifact: policies/slr-inline-policy.json
+    action: iam:CreateServiceLinkedRole
+    condition_key: iam:AWSServiceName
+    expected: resource-explorer-2.amazonaws.com
+forbidden_actions:
+  # The inline policy exists for exactly one grant. Role/policy CRUD is the
+  # pre-provisioner's (b1), passing roles to the service is the installer's (b2),
+  # and nothing hand-written here may widen the service's own surface — that is
+  # AIDevOpsAgentAccessPolicy's job, attached by ARN.
+  - iam:CreateRole
+  - iam:DeleteRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:UpdateAssumeRolePolicy
+  - iam:PutRolePermissionsBoundary
+  - iam:DeleteRolePermissionsBoundary
+  - iam:PassRole
+  - iam:CreateUser
+  - iam:CreateAccessKey
+  - aidevops:*
+  - secretsmanager:GetSecretValue
+  - kms:PutKeyPolicy
+parliament_suppressions:
+  - issue: MALFORMED
+    reason: >
+      policies/trust-policy.json is a role *trust* (assume-role) policy, not an
+      identity policy: it carries a Principal block and no Resource, which is
+      the only shape sts:AssumeRole trust documents take. Parliament lints every
+      document as an identity policy, so it reports "Statement contains neither
+      Resource nor NotResource". Scoping here is done by Principal +
+      aws:SourceAccount + aws:SourceArn, which `check_required_conditions`
+      asserts (see required_conditions above).
