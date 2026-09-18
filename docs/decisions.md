@@ -20,8 +20,8 @@ The linter's action database doesn't know the new service. Manifest-driven
 custom checks (`required_conditions`, `forbidden_actions`) own correctness for
 that prefix; parliament still gates everything else at full strength.
 
-## D4 — boto3 may lack the `aidevops` service model
-Real probes report `unverifiable` (and fail the run) rather than silently
-skipping. Fix is upgrading boto3 in `tools/requirements.txt`; until the SDK
-ships the model, real aidevops probes can be temporarily downgraded to
-simulate-only in `probes.yaml` — never removed.
+## D4 — the boto3/CLI service name is `devops-agent`, not `aidevops`
+`aidevops` is only the IAM namespace (action prefix, ARN service, principal).
+The SDK model is `devops-agent` (alias `devopsagent`). Real probes must use
+`service: devops-agent`. The probe runner reports `unverifiable` (and fails the
+run) if a service model is genuinely missing — never a silent skip.

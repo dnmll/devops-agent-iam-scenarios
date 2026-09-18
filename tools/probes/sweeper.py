@@ -40,9 +40,9 @@ def sweep_iam_roles(max_age: timedelta) -> list[str]:
 def sweep_agent_spaces(max_age: timedelta) -> list[str]:
     cleaned = []
     try:
-        client = boto3.client("aidevops")
+        client = boto3.client("devops-agent")
     except Exception:
-        print("note: boto3 lacks the aidevops model; skipping agent-space sweep")
+        print("note: boto3 lacks the devops-agent model; skipping agent-space sweep")
         return cleaned
     cutoff = datetime.now(timezone.utc) - max_age
     spaces = client.list_agent_spaces().get("agentSpaces", [])
