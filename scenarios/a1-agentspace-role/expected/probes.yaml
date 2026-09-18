@@ -1,0 +1,107 @@
+# Simulate-only scenario. Two reasons, both structural:
+#
+# 1. policies/trust-policy.json is a role *trust* policy (it carries a
+#    Principal and no Resource). iam:SimulateCustomPolicy only accepts identity
+#    policies, so the trust document is validated statically
+#    (`check_required_conditions` asserts both confused-deputy condition keys)
+#    and by terraform actually creating the role with it verbatim. See
+#    README -> "Live validation coverage".
+# 2. The role's permission surface is the AWS managed policy
+#    AIDevOpsAgentAccessPolicy, attached by ARN. It is AWS-owned and revised by
+#    AWS; this repo neither copies nor probes it. Only the inline SLR grant —
+#    the one permission we hand-write — is probed here.
+#
+# `role_under_test` therefore names the SLR-carrying probe anchor role
+# (`slr_role_arn`), which also selects policies/slr-inline-policy.json as the
+# simulated artifact (the runner matches the tier word "slr" against artifact
+# filenames — the same mechanism b5 uses to exclude its KMS key policy). The
+# verbatim-trust Agent Space role itself is not assumable by the CI role — by
+# design: only aidevops.amazonaws.com may assume it.
+role_under_test: slr_role_arn
+
+probes:
+  # ---- simulate: the one documented allow ----
+  - name: sim-create-resource-explorer-slr
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    context:
+      iam:AWSServiceName: resource-explorer-2.amazonaws.com
+    expect: allowed
+
+  # ---- simulate: the iam:AWSServiceName pin (least-privilege proof) ----
+  # Without the condition, iam:CreateServiceLinkedRole is a create-an-SLR-for-
+  # any-service primitive; lambda is the canonical counter-example.
+  - name: sim-create-slr-for-lambda-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    context:
+      iam:AWSServiceName: lambda.amazonaws.com
+    expect: implicitDeny
+  # The DevOps Agent metrics SLR (AWSServiceRoleForAIDevOps) is created once at
+  # onboarding by the installer (b2), not by the Agent Space role at runtime.
+  - name: sim-create-slr-for-aidevops-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  # Resource scoping is real in its own right: the correct service name against
+  # a different SLR path still denies.
+  - name: sim-create-slr-other-path-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: resource-explorer-2.amazonaws.com
+    expect: implicitDeny
+  # No iam:AWSServiceName in the request context at all (the condition cannot
+  # match, so the grant does not apply).
+  - name: sim-create-slr-without-service-name-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    expect: implicitDeny
+
+  # ---- simulate: the inline policy grants nothing else ----
+  # Role lifecycle is b1; the inline policy is one grant wide.
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  - name: sim-attach-role-policy-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  # Self-escalation guard: the Agent Space role must not be able to rewrite its
+  # own trust policy and widen who can assume it.
+  - name: sim-update-assume-role-policy-denied
+    kind: simulate
+    action: iam:UpdateAssumeRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  # The DevOps Agent surface comes from AIDevOpsAgentAccessPolicy (attached by
+  # ARN, deliberately not simulated), never from the hand-written inline policy.
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Integration credentials are read by the service under its own managed
+  # policy; the inline artifact adds no data-plane read.
+  - name: sim-get-secret-value-denied
+    kind: simulate
+    action: secretsmanager:GetSecretValue
+    resource: "*"
+    expect: implicitDeny
