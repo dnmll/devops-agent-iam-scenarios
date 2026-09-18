@@ -1,0 +1,78 @@
+# Administrator tier expectations. Same schema as probes.yaml
+# (probes.schema.json) and deployed by the same harness, but not yet wired into
+# the live runner: probes.schema.json allows a single `role_under_test` per
+# scenario, and scenario.yaml's `probes:` points at the operator matrix.
+role_under_test: admin_role_arn
+
+probes:
+  # ---- admin CAN administer the Agent Space surface ----
+  - name: sim-admin-create-agentspace
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-admin-delete-agentspace
+    kind: simulate
+    action: aidevops:DeleteAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-admin-associate-service
+    kind: simulate
+    action: aidevops:AssociateService
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-admin-revoke-access-token
+    kind: simulate
+    action: aidevops:RevokeAccessToken
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-admin-send-message
+    kind: simulate
+    action: aidevops:SendMessage
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-admin-list-agent-spaces
+    kind: simulate
+    action: aidevops:ListAgentSpaces
+    resource: "*"
+    expect: allowed
+
+  # ---- admin is still an end-user tier: no IAM, no credentials, no keys ----
+  - name: sim-admin-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/iamscn-b3-admin"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  - name: sim-admin-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/iamscn-b3-new"
+    expect: implicitDeny
+  - name: sim-admin-create-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  - name: sim-admin-kms-decrypt-denied
+    kind: simulate
+    action: kms:Decrypt
+    resource: "*"
+    expect: implicitDeny
+  # aidevops:* is scoped to agentspace/* — a non-Agent-Space aidevops ARN denies.
+  - name: sim-admin-out-of-scope-arn-denied
+    kind: simulate
+    action: aidevops:GetAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:other/probe"
+    expect: implicitDeny
+
+  # ---- real: authoritative allow-path ----
+  - name: real-admin-list-agent-spaces
+    kind: real
+    service: devops-agent
+    operation: list_agent_spaces
+    params: {}
+    expect: success

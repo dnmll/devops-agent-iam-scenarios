@@ -1,0 +1,57 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "OperatorAgentSpaceActions",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:GetAgentSpace",
+        "aidevops:InvokeAgent",
+        "aidevops:ListExecutions",
+        "aidevops:ListJournalRecords",
+        "aidevops:ListAssociations",
+        "aidevops:GetAssociation",
+        "aidevops:DiscoverTopology",
+        "aidevops:ListRecommendations",
+        "aidevops:GetRecommendation",
+        "aidevops:CreateBacklogTask",
+        "aidevops:UpdateBacklogTask",
+        "aidevops:GetBacklogTask",
+        "aidevops:ListBacklogTasks",
+        "aidevops:ListAssets",
+        "aidevops:ListAssetVersions",
+        "aidevops:ListAssetFiles",
+        "aidevops:GetAsset",
+        "aidevops:GetAssetContent",
+        "aidevops:GetAssetFile",
+        "aidevops:InitiateChatForCase",
+        "aidevops:EndChatForCase",
+        "aidevops:ListChats",
+        "aidevops:CreateChat",
+        "aidevops:SendMessage",
+        "aidevops:ListGoals",
+        "aidevops:CreateAsset",
+        "aidevops:CreateAssetFile",
+        "aidevops:UpdateAsset",
+        "aidevops:UpdateAssetFile",
+        "aidevops:ListPendingMessages"
+      ],
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "OperatorWebAppLogin",
+      "Effect": "Allow",
+      "Action": "aidevops:CreateOneTimeLoginSession",
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "OperatorAccountLevelActions",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:ListAssetTypes",
+        "aidevops:DescribeSupportLevel"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

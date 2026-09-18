@@ -1,0 +1,44 @@
+id: b3-webapp-tiers
+plane: B
+title: Web App / console user tiers — administrator, operator and read-only
+description: >
+  The three documented AWS DevOps Agent console / Operator Web App user tiers,
+  each as a standalone identity-based policy: administrator (full aidevops
+  surface), operator (investigation, chat, backlog and asset authoring plus the
+  one-time login session the Operator Web App needs) and read-only
+  (Get*/List*/Describe* only). These are end-user tiers — they contain no IAM
+  permissions, so they cannot create or pass roles; Agent Space provisioning
+  stays in b1/b2.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/about-aws-devops-agent-managing-assets.html
+artifacts:
+  - policies/admin-policy.json
+  - policies/operator-policy.json
+  - policies/readonly-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+forbidden_actions:
+  # Console user tiers are pure end-user permissions: no IAM writes, no role
+  # passing, no credential/key access. Those belong to b1/b2/b4/b5.
+  - iam:PassRole
+  - iam:CreateRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:CreateServiceLinkedRole
+  - secretsmanager:CreateSecret
+  - secretsmanager:GetSecretValue
+  - kms:Decrypt
+parliament_suppressions:
+  - issue: RESOURCE_STAR
+    reason: >
+      The account-level statements intentionally use Resource "*": the documented
+      account-scoped actions (ListAgentSpaces, ListAssetTypes, DescribeServices,
+      DescribeSupportLevel, GetAccountUsage, SearchServiceAccessibleResource and
+      service registration) do not take an Agent Space ARN, so they cannot be
+      resource-scoped. Every Agent Space scoped action is pinned to
+      agentspace/* in a separate statement.

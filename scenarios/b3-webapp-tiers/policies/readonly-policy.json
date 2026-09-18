@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOnlyAgentSpaceActions",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:Get*",
+        "aidevops:List*",
+        "aidevops:Describe*"
+      ],
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "ReadOnlyAccountLevelActions",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:ListAgentSpaces",
+        "aidevops:ListAssetTypes",
+        "aidevops:ListServices",
+        "aidevops:DescribeServices",
+        "aidevops:DescribeSupportLevel",
+        "aidevops:GetAccountUsage",
+        "aidevops:SearchServiceAccessibleResource"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
