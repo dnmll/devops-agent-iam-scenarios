@@ -11,12 +11,18 @@ Reads scenarios/<id>/expected/probes.yaml, assumes the role named by
     CI role's credentials — authoritative for the deny matrix)
   - real probes: boto3 calls with the assumed role's credentials
 Retries AccessDenied flapping for up to ~3 minutes (IAM eventual consistency).
+
+Probe fields (`params`, `resource`, `context`, ...) may reference any terraform
+output with a `${tf_output:NAME}` placeholder; it is resolved from the
+--tf-outputs file before the probe runs. `role_under_test` stays a bare output
+name for backwards compatibility.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -28,6 +34,53 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RETRY_SECONDS = 180
 RETRY_INTERVAL = 15
+
+# ${tf_output:NAME} — NAME is a terraform output name (HCL identifier rules).
+TF_OUTPUT_RE = re.compile(r"\$\{tf_output:([A-Za-z_][A-Za-z0-9_-]*)\}")
+
+
+class ProbeConfigError(RuntimeError):
+    """probes.yaml references something the run can't resolve — fail loudly."""
+
+
+def tf_output_values(tf_outputs: dict) -> dict:
+    """Flatten `terraform output -json` ({name: {value, sensitive, type}}).
+
+    Values are returned as-is (a terraform output may be a list or object);
+    plain {name: value} maps are accepted too so callers can pass either shape.
+    """
+    flat = {}
+    for name, body in tf_outputs.items():
+        flat[name] = body["value"] if isinstance(body, dict) and "value" in body else body
+    return flat
+
+
+def resolve_tf_outputs(value, outputs: dict):
+    """Replace every ${tf_output:NAME} placeholder in a probe (recursively).
+
+    A string that is *only* a placeholder resolves to the raw output value, so
+    non-string terraform outputs (lists, numbers, objects) survive intact;
+    placeholders embedded in a larger string are interpolated as text.
+    """
+    if isinstance(value, str):
+        whole = TF_OUTPUT_RE.fullmatch(value)
+        if whole:
+            return _lookup(whole.group(1), outputs)
+        return TF_OUTPUT_RE.sub(lambda m: str(_lookup(m.group(1), outputs)), value)
+    if isinstance(value, dict):
+        return {k: resolve_tf_outputs(v, outputs) for k, v in value.items()}
+    if isinstance(value, list):
+        return [resolve_tf_outputs(v, outputs) for v in value]
+    return value
+
+
+def _lookup(name: str, outputs: dict):
+    if name not in outputs:
+        known = ", ".join(sorted(outputs)) or "(none)"
+        raise ProbeConfigError(
+            f"probe references unknown terraform output '{name}' — declared outputs: {known}"
+        )
+    return outputs[name]
 
 
 def load_expectations(scenario: str) -> tuple[dict, dict]:
@@ -116,8 +169,8 @@ def main() -> int:
     args = ap.parse_args()
 
     manifest, probes_doc = load_expectations(args.scenario)
-    tf_outputs = json.loads(Path(args.tf_outputs).read_text())
-    role_arn = tf_outputs[probes_doc["role_under_test"]]["value"]
+    outputs = tf_output_values(json.loads(Path(args.tf_outputs).read_text()))
+    role_arn = _lookup(probes_doc["role_under_test"], outputs)
 
     base = boto3.Session()
     account_id = base.client("sts").get_caller_identity()["Account"]
@@ -141,11 +194,20 @@ def main() -> int:
     stash: dict[str, str] = {}
     results = []
     for probe in probes_doc["probes"]:
+        # Literal substitutions first (they apply to the docs-style placeholders),
+        # then ${tf_output:...} — terraform values are already sandbox-real.
         probe = substitute(probe, subs)
-        if probe["kind"] == "simulate":
-            ok, detail = with_retries(run_simulate, iam, role_arn, probe)
+        try:
+            probe = resolve_tf_outputs(probe, outputs)
+        except ProbeConfigError as e:
+            # A bad output reference is a misconfiguration, not a policy verdict:
+            # record it as a visible failure instead of aborting the whole matrix.
+            ok, detail = False, f"config error: {e}"
         else:
-            ok, detail = with_retries(run_real, assumed, probe, stash)
+            if probe["kind"] == "simulate":
+                ok, detail = with_retries(run_simulate, iam, role_arn, probe)
+            else:
+                ok, detail = with_retries(run_real, assumed, probe, stash)
         results.append({"name": probe["name"], "kind": probe["kind"],
                         "expect": probe["expect"], "pass": ok, "detail": detail})
         print(f"{'PASS' if ok else 'FAIL'}  {probe['name']:40s} {detail}")
