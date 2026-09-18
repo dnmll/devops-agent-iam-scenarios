@@ -20,7 +20,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 | `b2-installer` | Installer — create/configure an Agent Space | aidevops lifecycle + associations + Operator App + scoped PassRole + SLR creation | live |
 | `b3-webapp-tiers` | Web App / console user tiers | Admin / Operator / Read-only policies (+ `CreateOneTimeLoginSession` for Web App login) | static |
 | `b4-secrets-manager` | Third-party integration via Secrets Manager | secretsmanager Create/Put/Describe/List/Tag scoped to a `devops-agent/*` name prefix; no `GetSecretValue`/`DeleteSecret` (the service reads, the installer only writes) | static |
-| `b5-customer-kms-key` | Customer-managed KMS key | Caller policy (`kms:ViaService`) + key policy (service principal, SourceArn + EncryptionContext, agentspace/* and service/* statements) | planned |
+| `b5-customer-kms-key` | Customer-managed KMS key | Caller policy (`kms:ViaService`) + key policy (service principal, SourceArn + EncryptionContext, agentspace/* and service/* statements) | static |
 | `b6-cicd-deployer` | CI/CD deployer (Cloud Control / awscc) | cloudcontrol + aidevops + PassRole; permission map needs live verification | planned |
 | `b7-log-delivery` | Vended log delivery configurer | `aidevops:AllowVendedLogDeliveryForResource` + logs delivery V2 APIs; 2 scopes × 3 targets (CloudWatch Logs / S3 / Firehose), S3+KMS sub-variant | planned |
 

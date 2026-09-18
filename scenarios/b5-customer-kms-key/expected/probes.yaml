@@ -1,0 +1,148 @@
+# Only the caller identity policy is simulatable: policies/key-policy.json is a
+# KMS *resource* policy (it carries Principal blocks), and
+# iam:SimulateCustomPolicy only accepts identity policies. The probe runner picks
+# the artifact whose filename matches the tier in `role_under_test`
+# (`caller_role_arn` -> caller-policy.json), so the key policy is excluded here
+# and validated statically instead (see README -> "Live validation coverage").
+role_under_test: caller_role_arn
+
+probes:
+  # ---- simulate: the documented caller grant, through the DevOps Agent path ----
+  - name: sim-generate-data-key-via-aidevops
+    kind: simulate
+    action: kms:GenerateDataKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: aidevops.us-east-1.amazonaws.com
+    expect: allowed
+  - name: sim-encrypt-via-aidevops
+    kind: simulate
+    action: kms:Encrypt
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: aidevops.us-east-1.amazonaws.com
+    expect: allowed
+  - name: sim-decrypt-via-aidevops
+    kind: simulate
+    action: kms:Decrypt
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: aidevops.us-east-1.amazonaws.com
+    expect: allowed
+  # kms:ReEncrypt* expands to ReEncryptFrom + ReEncryptTo; both are authorized
+  # against the key, so the wildcard form is what the docs use.
+  - name: sim-re-encrypt-from-via-aidevops
+    kind: simulate
+    action: kms:ReEncryptFrom
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: aidevops.us-east-1.amazonaws.com
+    expect: allowed
+  - name: sim-describe-key-via-aidevops
+    kind: simulate
+    action: kms:DescribeKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: aidevops.us-east-1.amazonaws.com
+    expect: allowed
+
+  # ---- simulate: the console key picker, before a key has been chosen ----
+  # ListKeys/ListAliases are account-level; DescribeKey is granted unconditioned
+  # on purpose so the dropdown can filter on key spec/usage (documented in the
+  # README). It returns key metadata only — never key material.
+  - name: sim-list-keys
+    kind: simulate
+    action: kms:ListKeys
+    resource: "*"
+    expect: allowed
+  - name: sim-describe-key-without-viaservice-context
+    kind: simulate
+    action: kms:DescribeKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: allowed
+
+  # ---- simulate: the kms:ViaService fence ----
+  # No kms:ViaService in the request context = a direct KMS call by the human,
+  # not a call DevOps Agent made on their behalf. The crypto grant must not
+  # apply, so the holder cannot use the CMK to decrypt anything themselves.
+  - name: sim-decrypt-without-viaservice-context-denied
+    kind: simulate
+    action: kms:Decrypt
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+  - name: sim-generate-data-key-without-viaservice-context-denied
+    kind: simulate
+    action: kms:GenerateDataKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+  # Reaching the same key through a different service (e.g. the b4 Secrets
+  # Manager path) is a different grant and is not covered by this policy.
+  - name: sim-decrypt-via-secretsmanager-denied
+    kind: simulate
+    action: kms:Decrypt
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: secretsmanager.us-east-1.amazonaws.com
+    expect: implicitDeny
+  # Wrong Region in the ViaService value: the condition is StringEquals, pinned
+  # to the Region the key lives in.
+  - name: sim-decrypt-via-aidevops-other-region-denied
+    kind: simulate
+    action: kms:Decrypt
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    context:
+      kms:ViaService: aidevops.eu-west-1.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: the grant is pinned to one CMK ----
+  - name: sim-generate-data-key-other-key-denied
+    kind: simulate
+    action: kms:GenerateDataKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/9999zzzz-99zz-99zz-99zz-999999999999"
+    context:
+      kms:ViaService: aidevops.us-east-1.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: key administration is never the caller's ----
+  - name: sim-schedule-key-deletion-denied
+    kind: simulate
+    action: kms:ScheduleKeyDeletion
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+  - name: sim-put-key-policy-denied
+    kind: simulate
+    action: kms:PutKeyPolicy
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+  # A grant would let the holder re-delegate the key's use to another principal
+  # without the kms:ViaService fence — straight around this policy.
+  - name: sim-create-grant-denied
+    kind: simulate
+    action: kms:CreateGrant
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+  - name: sim-disable-key-denied
+    kind: simulate
+    action: kms:DisableKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+
+  # ---- simulate: adjacent-privilege matrix (other scenarios' personas) ----
+  # Creating the encrypted resources that reference the CMK is b2.
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-register-service-denied
+    kind: simulate
+    action: aidevops:RegisterService
+    resource: "*"
+    expect: implicitDeny
+  # The CMK protects integration credentials; holding key permissions must not
+  # imply being able to read the plaintext credential out of Secrets Manager.
+  - name: sim-get-secret-value-denied
+    kind: simulate
+    action: secretsmanager:GetSecretValue
+    resource: "arn:aws:secretsmanager:us-east-1:111122223333:secret:devops-agent/dynatrace-oauth-AbCdEf"
+    expect: implicitDeny

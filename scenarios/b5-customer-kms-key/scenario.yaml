@@ -1,0 +1,89 @@
+id: b5-customer-kms-key
+plane: B
+title: Customer-managed KMS key — caller identity policy + KMS key policy
+description: >
+  The two-sided grant AWS DevOps Agent requires when an Agent Space or a
+  registered service is encrypted with a customer-managed KMS key. The caller
+  identity policy gives the human (or pipeline identity) the five documented
+  crypto actions on one CMK, fenced to the DevOps Agent path with
+  kms:ViaService, plus the unconditioned kms:ListKeys/kms:DescribeKey the
+  console key picker needs. The key resource policy adds the other side: the
+  caller statement, the aidevops.amazonaws.com service-principal DescribeKey
+  statement for configuration-time validation, and two asynchronous crypto
+  statements — one per resource type (agentspace/*, service/*) — each gated on
+  aws:SourceArn and the aws-crypto-ec:aws:aidevops:arn encryption context.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-encryption-at-rest-for-devops-agent.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/caller-policy.json
+  - policies/key-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+  # The key policy's example caller principal maps onto the harness role name;
+  # the harness keeps every name it touches in the iamscn- namespace.
+  "DevOpsAgentUserRole": "iamscn-b5-caller"
+required_conditions:
+  # kms:ViaService is the whole least-privilege story of the caller policy: the
+  # CMK grant must be worthless outside the DevOps Agent path. Asserted on each
+  # crypto action individually — kms:DescribeKey is deliberately excluded here
+  # because it is *also* granted unconditioned for the console key picker (see
+  # README), and this check requires every matching Allow statement to carry the
+  # condition.
+  - artifact: policies/caller-policy.json
+    action: kms:GenerateDataKey*
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/caller-policy.json
+    action: kms:Decrypt
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/caller-policy.json
+    action: kms:Encrypt
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/caller-policy.json
+    action: kms:ReEncrypt*
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+forbidden_actions:
+  # Key *administration* stays with the key's owner/administrator (the account
+  # root statement of the customer's existing key policy). A DevOps Agent caller
+  # that could rewrite the key policy, retire grants, disable the key or
+  # schedule it for deletion could both escape the kms:ViaService fence and
+  # destroy every encrypted Agent Space in the account.
+  - kms:PutKeyPolicy
+  - kms:CreateKey
+  - kms:CreateGrant
+  - kms:RetireGrant
+  - kms:RevokeGrant
+  - kms:DisableKey
+  - kms:EnableKeyRotation
+  - kms:ScheduleKeyDeletion
+  - kms:DeleteAlias
+  - kms:TagResource
+  # Creating the encrypted resources themselves is b2; reading integration
+  # credentials out of Secrets Manager is the service's job (Plane A).
+  - aidevops:CreateAgentSpace
+  - aidevops:RegisterService
+  - secretsmanager:GetSecretValue
+  - iam:PassRole
+  - iam:CreateRole
+parliament_suppressions:
+  - issue: RESOURCE_STAR
+    reason: >
+      Two distinct, documented reasons. (1) policies/key-policy.json is a KMS
+      *resource* policy: a key policy is attached to exactly one key, so
+      Resource "*" there means "this key" and is the only form KMS accepts —
+      the scoping is done by Principal + kms:ViaService + aws:SourceArn +
+      kms:EncryptionContext, and this is verbatim the key policy from the
+      DevOps Agent encryption-at-rest documentation. (2) In
+      policies/caller-policy.json the ListKeysForConsoleKeySelection statement
+      uses "*" because kms:ListKeys/kms:ListAliases are account-level
+      enumeration APIs that take no key ARN, and the console key picker needs
+      kms:DescribeKey before the user has chosen a key. Every crypto action in
+      the caller policy is pinned to the single CMK ARN.
