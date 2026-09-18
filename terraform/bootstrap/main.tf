@@ -31,3 +31,9 @@ variable "environment_name" {
   type    = string
   default = "sandbox"
 }
+
+variable "github_repo_immutable" {
+  description = "Immutable owner@account-id/repo@repo-id form of the repo, e.g. dnmll@91972154/devops-agent-iam-scenarios@1375390437; required when the repo uses immutable OIDC subject claims"
+  type        = string
+  default     = null
+}

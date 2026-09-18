@@ -16,7 +16,11 @@ resource "aws_iam_role" "ci" {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
           # Pinned to the protected environment: live runs always pass the human gate.
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:${var.environment_name}"
+          # Repos with GitHub's immutable OIDC subject enabled (default for new
+          # repos; check GET /repos/{o}/{r}/actions/oidc/customization/sub) send
+          # owner@id/repo@id in the sub claim — set github_repo_immutable to the
+          # returned sub_claim_prefix (minus the "repo:" prefix) for those.
+          "token.actions.githubusercontent.com:sub" = "repo:${coalesce(var.github_repo_immutable, var.github_repo)}:environment:${var.environment_name}"
         }
       }
     }]

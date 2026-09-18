@@ -7,7 +7,12 @@ The live-validation loop runs **only** in a dedicated sandbox AWS account. Never
 ```bash
 cd terraform/bootstrap
 terraform init
-terraform apply -var 'github_repo=<owner>/devops-agent-iam-scenarios'
+# New repos use GitHub's immutable OIDC subject claims — fetch the id-qualified form first:
+#   gh api repos/<owner>/<repo>/actions/oidc/customization/sub
+# and pass the sub_claim_prefix (without the "repo:" prefix) as github_repo_immutable.
+terraform apply \
+  -var 'github_repo=<owner>/devops-agent-iam-scenarios' \
+  -var 'github_repo_immutable=<owner>@<account-id>/<repo>@<repo-id>'
 ```
 
 Creates the GitHub OIDC provider, `iamscn-ci-role` (sub pinned to `environment:sandbox`), the `iamscn-boundary` permissions boundary, and the tfstate bucket. Record the three outputs.
