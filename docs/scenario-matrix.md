@@ -8,7 +8,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 |---|---|---|---|
 | `a1-agentspace-role` | Agent Space role (primary account) | Trust policy (`aidevops.amazonaws.com` + SourceAccount/SourceArn) + `AIDevOpsAgentAccessPolicy` + Resource Explorer SLR inline; restricted-template variant | static |
 | `a2-secondary-account-role` | Secondary account role (cross-account) | Same permission shape as a1, trust scoped to the Agent Space in the monitoring account | planned |
-| `a3-elevated-directed-actions` | Elevated role for directed actions | Pattern + worked example for operator-approved remediation writes | planned |
+| `a3-elevated-directed-actions` | Elevated role for directed actions | Trust policy with all three STS actions (`AssumeRole` + `SetSourceIdentity` + `TagSession`) + SourceAccount/SourceArn; worked **template** ceiling for operator-approved remediation writes (tag-gated `ec2:RebootInstances` / `lambda:UpdateFunctionConfiguration`) that customers narrow per runbook | static |
 | `a4-operator-webapp-role` | Operator Web App role | `AIDevOpsOperatorAppAccessPolicy`-derived, session-tag (`AgentSpaceId`) scoped | planned |
 | `a5-service-linked-roles` | Service-linked roles | `AWSServiceRoleForAIDevOps` (vended metrics) + `AWSServiceRoleForLogDelivery` (Firehose logs) creation guidance | planned |
 
