@@ -1,0 +1,180 @@
+# Deny-matrix-only scenario. Read this before adding a probe here.
+#
+# Both artifacts are hostile to live probing, for different reasons:
+#
+# 1. policies/trust-policy.json is a role *trust* policy (Principal, no
+#    Resource). iam:SimulateCustomPolicy accepts identity policies only, so the
+#    trust document is validated statically — `check_required_conditions`
+#    asserts the confused-deputy pair on BOTH sts:AssumeRole and sts:TagSession
+#    — and by terraform creating `iamscn-a4-operator-app` with it verbatim. Same
+#    situation as a1's trust policy and b5's KMS key policy.
+#
+# 2. policies/operator-app-policy.json is scoped by POLICY VARIABLES:
+#    `arn:aws:aidevops:*:*:agentspace/${aws:PrincipalTag/AgentSpaceId}` plus
+#    `aws:ResourceAccount = ${aws:PrincipalAccount}` on every statement.
+#    iam:SimulateCustomPolicy evaluates a caller-supplied document with no real
+#    session behind it: there is no principal to read a session tag from, and
+#    ContextEntries cannot stand in for the resource-derived aws:ResourceAccount
+#    key. An unresolved variable makes the Resource ARN / condition fail to
+#    match, so the simulator returns implicitDeny for grants that are genuinely
+#    allowed in a tagged Web App session.
+#
+#    Consequence, and the reason there is not a single `expect: allowed` probe
+#    below: an allow expectation on any action in this policy would be a
+#    guaranteed FALSE FAILURE in a live run, and "fixing" it would mean
+#    weakening the artifact (hardcoding an Agent Space id, dropping
+#    aws:ResourceAccount) — which the repo rules forbid. The allow half of this
+#    scenario is therefore covered statically: `check_required_conditions`
+#    asserts aws:ResourceAccount = ${aws:PrincipalAccount} on one action from
+#    every statement (with the policy variable as the *expected literal*, so any
+#    mangling of the escaping fails the checks), and the README's
+#    "Policy variables and the substitution pass" section records the finding.
+#
+#    UNVERIFIABLE BY SIMULATION (documented, not encoded as probes):
+#      - aidevops:GetAgentSpace / SendMessage / CreateAsset / … allowed when the
+#        session carries AgentSpaceId = the target Agent Space's id
+#      - aidevops:GetAgentSpace denied when the session tag names a DIFFERENT
+#        Agent Space in the same account (the point of the whole scenario; it
+#        cannot be told apart from the unresolved-variable deny below, so it is
+#        not claimed as a probe result)
+#      - support / secretsmanager / transcribe statements allowed in-account
+#      - the same statements denied for a resource in another account
+#        (aws:ResourceAccount != aws:PrincipalAccount)
+#      - transcribe:StartStreamTranscriptionWebSocket in either direction — it is
+#        a WebSocket entry point the policy simulator does not model, so it would
+#        come back `unverifiable` rather than allowed/denied
+#
+# What IS probed below: that the document grants nothing outside its five
+# documented statements. Those expectations are variable-independent — an
+# unresolved policy variable can only ever make a deny *more* certain, so these
+# probes cannot pass falsely in the "extra grant slipped in" direction they
+# exist to catch. Every action named is one the simulator knows (a probe against
+# an action the simulator rejects returns `unverifiable`, which the runner scores
+# as a FAIL for deny expectations — see tools/probes/run_probes.py).
+#
+# `role_under_test` names the probe anchor (`operator_role_arn`); the tier word
+# "operator" also selects policies/operator-app-policy.json as the simulated
+# artifact, keeping the non-simulatable trust document out of PolicyInputList
+# (the same mechanism b3 uses for its tiers). The deliverable role itself is
+# assumable by aidevops.amazonaws.com only — by design.
+role_under_test: operator_role_arn
+
+probes:
+  # ---- no IAM at all: the Web App role cannot create, pass or re-tag roles ----
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-operator-app"
+    expect: implicitDeny
+  - name: sim-attach-role-policy-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-operator-app"
+    expect: implicitDeny
+  # Self-escalation guard: the session tag is only a scope if the role cannot
+  # rewrite its own trust policy (and with it who may set AgentSpaceId).
+  - name: sim-update-assume-role-policy-denied
+    kind: simulate
+    action: iam:UpdateAssumeRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-operator-app"
+    expect: implicitDeny
+  # A role that could re-tag itself could choose its own AgentSpaceId scope.
+  - name: sim-tag-role-denied
+    kind: simulate
+    action: iam:TagRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-operator-app"
+    expect: implicitDeny
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+
+  # ---- no Agent Space lifecycle or association management (that is b2) ----
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-update-agentspace-denied
+    kind: simulate
+    action: aidevops:UpdateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-delete-agentspace-denied
+    kind: simulate
+    action: aidevops:DeleteAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-associate-service-denied
+    kind: simulate
+    action: aidevops:AssociateService
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+
+  # ---- no Operator App configuration from inside the Operator App ----
+  # Enabling/disabling the Web App and pointing it at an IdP is the installer's
+  # (b2) grant. If the Web App role held it, a Web App session could repoint the
+  # IdP that decides who gets which AgentSpaceId session tag.
+  - name: sim-enable-operator-app-denied
+    kind: simulate
+    action: aidevops:EnableOperatorApp
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-update-operator-app-idp-config-denied
+    kind: simulate
+    action: aidevops:UpdateOperatorAppIdpConfig
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # The one-time login session that *starts* a Web App session is a human/console
+  # grant (b3), not one the Web App role holds.
+  - name: sim-create-one-time-login-session-denied
+    kind: simulate
+    action: aidevops:CreateOneTimeLoginSession
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Operators chat with the agent through SendMessage/CreateChat; direct agent
+  # invocation is not part of the Operator App policy.
+  - name: sim-invoke-agent-denied
+    kind: simulate
+    action: aidevops:InvokeAgent
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+
+  # ---- secrets: write-only, exactly as documented ----
+  # The Operator App creates integration secrets and lists names; the *service*
+  # reads the values under AIDevOpsAgentAccessPolicy. The Web App role never
+  # reads, overwrites or deletes one (same split as b4).
+  - name: sim-get-secret-value-denied
+    kind: simulate
+    action: secretsmanager:GetSecretValue
+    resource: "arn:aws:secretsmanager:us-east-1:111122223333:secret:devops-agent/probe-AbCdEf"
+    expect: implicitDeny
+  - name: sim-put-secret-value-denied
+    kind: simulate
+    action: secretsmanager:PutSecretValue
+    resource: "arn:aws:secretsmanager:us-east-1:111122223333:secret:devops-agent/probe-AbCdEf"
+    expect: implicitDeny
+  - name: sim-delete-secret-denied
+    kind: simulate
+    action: secretsmanager:DeleteSecret
+    resource: "arn:aws:secretsmanager:us-east-1:111122223333:secret:devops-agent/probe-AbCdEf"
+    expect: implicitDeny
+
+  # ---- support: read + chat on existing cases, never case creation ----
+  # support:CreateCase belongs to AIDevOpsAgentAccessPolicy (the agent opens
+  # cases), not to the Operator App policy.
+  - name: sim-support-create-case-denied
+    kind: simulate
+    action: support:CreateCase
+    resource: "*"
+    expect: implicitDeny
+
+  # ---- no KMS data-plane access (that is b5's caller policy) ----
+  - name: sim-kms-decrypt-denied
+    kind: simulate
+    action: kms:Decrypt
+    resource: "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555"
+    expect: implicitDeny
