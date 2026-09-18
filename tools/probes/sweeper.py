@@ -50,7 +50,8 @@ def sweep_agent_spaces(max_age: timedelta) -> list[str]:
         name = space.get("name", "")
         created = space.get("createdAt")
         if name.startswith("iamscn-") and created and created < cutoff:
-            client.delete_agent_space(agentSpaceId=space["id"])
+            # ListAgentSpaces returns the identifier as `agentSpaceId`, not `id`.
+            client.delete_agent_space(agentSpaceId=space["agentSpaceId"])
             cleaned.append(f"agent space {name}")
     return cleaned
 

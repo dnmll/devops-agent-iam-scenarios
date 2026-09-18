@@ -109,3 +109,55 @@ probes:
       AWSServiceName: aidevops.amazonaws.com
     tolerate: [InvalidInput]
     expect: success
+
+  # ---- real: Agent Space lifecycle (create → associate → get → delete) ----
+  # The space is named iamscn-* so the tag-scoped sweeper can reclaim it if the
+  # delete probe below never runs (deploy/probe abort).
+  - name: real-create-agent-space
+    kind: real
+    service: devops-agent
+    operation: create_agent_space
+    params:
+      name: iamscn-b2-probe
+      description: Probe-created Agent Space for the b2-installer scenario
+    # agentSpaceId feeds every probe after this one via the ${...} stash.
+    save_output_as: agent_space_id=agentSpace.agentSpaceId
+    expect: success
+  # CreateAgentSpace itself takes no role ARN: the Agent Space role is handed to
+  # the service by AssociateService (configuration.aws.assumableRoleArn), which
+  # is therefore where iam:PassRole is really exercised. The ARN comes from the
+  # terraform-provisioned iamscn-b2-dar-agentspace role.
+  - name: real-associate-aws-account
+    kind: real
+    service: devops-agent
+    operation: associate_service
+    params:
+      agentSpaceId: ${agent_space_id}
+      serviceId: aws
+      configuration:
+        aws:
+          assumableRoleArn: ${tf_output:agentspace_target_role_arn}
+          accountId: "111122223333"
+          accountType: monitor
+    # These are service-side validation verdicts on the passed role, not IAM
+    # authorization verdicts: the probe's job is to prove the installer policy
+    # allows the call, so AccessDeniedException (and only that) must fail it.
+    tolerate: [ValidationException, InvalidParameterException, ConflictException]
+    expect: success
+  - name: real-get-agent-space
+    kind: real
+    service: devops-agent
+    operation: get_agent_space
+    params:
+      agentSpaceId: ${agent_space_id}
+    expect: success
+  - name: real-delete-agent-space
+    kind: real
+    service: devops-agent
+    operation: delete_agent_space
+    params:
+      agentSpaceId: ${agent_space_id}
+    # Idempotency on retry: a delete that succeeded but was retried (or a space
+    # still settling) must not fail the run — only AccessDeniedException does.
+    tolerate: [ResourceNotFoundException, ConflictException]
+    expect: success

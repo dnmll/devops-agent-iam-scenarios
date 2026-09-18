@@ -6,7 +6,7 @@
   "required": ["role_under_test", "probes"],
   "properties": {
     "role_under_test": {
-      "description": "Terraform output name holding the ARN of the role the probes assume",
+      "description": "Terraform output name holding the ARN of the role the probes assume (bare output name, not a ${tf_output:...} placeholder)",
       "type": "string"
     },
     "probes": {
