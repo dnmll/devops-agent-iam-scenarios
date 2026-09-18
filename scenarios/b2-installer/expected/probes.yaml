@@ -53,6 +53,46 @@ probes:
     resource: "*"
     expect: implicitDeny
 
+  # ---- simulate: adjacent-privilege matrix (other personas/scenarios) ----
+  # The installer manages Agent Spaces; asset authoring belongs to the asset personas.
+  - name: sim-create-asset-denied
+    kind: simulate
+    action: aidevops:CreateAsset
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Access-token management is a separate persona (b3 / a4), not the installer.
+  - name: sim-create-access-token-denied
+    kind: simulate
+    action: aidevops:CreateAccessToken
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Vended log delivery is scenario b7, not the installer.
+  - name: sim-allow-vended-log-delivery-denied
+    kind: simulate
+    action: aidevops:AllowVendedLogDeliveryForResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # The CloudWatch Logs half of log delivery is likewise scenario b7.
+  - name: sim-logs-put-delivery-source-denied
+    kind: simulate
+    action: logs:PutDeliverySource
+    resource: "*"
+    expect: implicitDeny
+  # Role lifecycle (create/delete) is scenario b1; b2 only passes pre-created roles.
+  - name: sim-delete-role-denied
+    kind: simulate
+    action: iam:DeleteRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  # The SLR grant is pinned to aidevops.amazonaws.com — any other service principal denies.
+  - name: sim-create-slr-for-lambda-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: lambda.amazonaws.com
+    expect: implicitDeny
+
   # ---- real: authoritative allow-path (assumes role_under_test) ----
   - name: real-list-agent-spaces
     kind: real
