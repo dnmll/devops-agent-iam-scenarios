@@ -1,0 +1,32 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateDevOpsAgentIntegrationSecrets",
+      "Effect": "Allow",
+      "Action": "secretsmanager:CreateSecret",
+      "Resource": "arn:aws:secretsmanager:us-east-1:111122223333:secret:devops-agent/*",
+      "Condition": {
+        "StringLike": {
+          "secretsmanager:Name": "devops-agent/*"
+        }
+      }
+    },
+    {
+      "Sid": "PopulateAndInspectIntegrationSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:PutSecretValue",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:TagResource"
+      ],
+      "Resource": "arn:aws:secretsmanager:us-east-1:111122223333:secret:devops-agent/*"
+    },
+    {
+      "Sid": "ListSecretsForNameSelection",
+      "Effect": "Allow",
+      "Action": "secretsmanager:ListSecrets",
+      "Resource": "*"
+    }
+  ]
+}
