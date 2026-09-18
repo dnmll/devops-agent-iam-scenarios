@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudControlResourceLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateResource",
+        "cloudformation:GetResource",
+        "cloudformation:UpdateResource",
+        "cloudformation:DeleteResource",
+        "cloudformation:ListResources",
+        "cloudformation:GetResourceRequestStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DevOpsAgentResourceCrud",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:CreateAgentSpace",
+        "aidevops:GetAgentSpace",
+        "aidevops:UpdateAgentSpace",
+        "aidevops:DeleteAgentSpace",
+        "aidevops:AssociateService",
+        "aidevops:TagResource"
+      ],
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "DevOpsAgentListForPlan",
+      "Effect": "Allow",
+      "Action": "aidevops:ListAgentSpaces",
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassAgentSpaceRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::111122223333:role/DevOpsAgentRole-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "aidevops.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

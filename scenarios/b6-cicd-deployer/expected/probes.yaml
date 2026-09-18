@@ -1,0 +1,207 @@
+# IMPORTANT — this matrix proves what the ARTIFACT grants, not that the grant is
+# SUFFICIENT for a real `terraform apply` with the awscc provider. The Cloud
+# Control -> resource-handler permission mapping for the awscc_devopsagent_*
+# resource types is unverified (docs/decisions.md D1); only a live b6 run with
+# real awscc resources can close that gap. See README -> "Unverified: the Cloud
+# Control -> handler permission mapping".
+role_under_test: deployer_role_arn
+
+probes:
+  # ---- simulate: the Cloud Control API entry points ----
+  # The IAM prefix for Cloud Control API actions is `cloudformation:`, not
+  # `cloudcontrol:` (Service Authorization Reference, "AWS Cloud Control API").
+  # These actions define no resource types, so "*" is the only accepted scope.
+  - name: sim-cloudcontrol-create-resource
+    kind: simulate
+    action: cloudformation:CreateResource
+    resource: "*"
+    expect: allowed
+  - name: sim-cloudcontrol-get-resource
+    kind: simulate
+    action: cloudformation:GetResource
+    resource: "*"
+    expect: allowed
+  - name: sim-cloudcontrol-update-resource
+    kind: simulate
+    action: cloudformation:UpdateResource
+    resource: "*"
+    expect: allowed
+  - name: sim-cloudcontrol-delete-resource
+    kind: simulate
+    action: cloudformation:DeleteResource
+    resource: "*"
+    expect: allowed
+  - name: sim-cloudcontrol-list-resources
+    kind: simulate
+    action: cloudformation:ListResources
+    resource: "*"
+    expect: allowed
+  # awscc polls the asynchronous request token after every write.
+  - name: sim-cloudcontrol-get-request-status
+    kind: simulate
+    action: cloudformation:GetResourceRequestStatus
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: the underlying aidevops CRUD the handler performs ----
+  - name: sim-create-agentspace
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-get-agentspace
+    kind: simulate
+    action: aidevops:GetAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-update-agentspace
+    kind: simulate
+    action: aidevops:UpdateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-delete-agentspace
+    kind: simulate
+    action: aidevops:DeleteAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  # Association actions authorize against BOTH the association ARN and the Agent
+  # Space ARN; agentspace/* covers both (see b2 and the cross-cutting notes in
+  # docs/scenario-matrix.md).
+  - name: sim-associate-service
+    kind: simulate
+    action: aidevops:AssociateService
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-tag-resource
+    kind: simulate
+    action: aidevops:TagResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-list-agentspaces
+    kind: simulate
+    action: aidevops:ListAgentSpaces
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: PassRole, scoped and conditioned ----
+  - name: sim-passrole-to-aidevops
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: allowed
+  - name: sim-passrole-to-lambda-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: lambda.amazonaws.com
+    expect: implicitDeny
+  # The awscc provider would happily pass a CloudFormation-created role too; the
+  # DevOpsAgentRole-* prefix is what stops the pipeline handing over any role.
+  - name: sim-passrole-other-role-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/SomeOtherRole"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: no IAM provisioning (split duty with b1) ----
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-new"
+    expect: implicitDeny
+  - name: sim-attach-role-policy-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  - name: sim-create-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: CloudFormation proper stays denied ----
+  # awscc is stackless. The Cloud Control actions above share the
+  # `cloudformation:` IAM prefix, and these probes are what proves the shared
+  # prefix did not smuggle in stack privileges — a stack can create any resource
+  # type, which would make the whole ARN-scoped aidevops layer moot.
+  - name: sim-cfn-create-stack-denied
+    kind: simulate
+    action: cloudformation:CreateStack
+    resource: "arn:aws:cloudformation:us-east-1:111122223333:stack/devops-agent/*"
+    expect: implicitDeny
+  - name: sim-cfn-update-stack-denied
+    kind: simulate
+    action: cloudformation:UpdateStack
+    resource: "arn:aws:cloudformation:us-east-1:111122223333:stack/devops-agent/*"
+    expect: implicitDeny
+  - name: sim-cfn-delete-stack-denied
+    kind: simulate
+    action: cloudformation:DeleteStack
+    resource: "arn:aws:cloudformation:us-east-1:111122223333:stack/devops-agent/*"
+    expect: implicitDeny
+  - name: sim-cfn-create-change-set-denied
+    kind: simulate
+    action: cloudformation:CreateChangeSet
+    resource: "arn:aws:cloudformation:us-east-1:111122223333:stack/devops-agent/*"
+    expect: implicitDeny
+  - name: sim-cfn-execute-change-set-denied
+    kind: simulate
+    action: cloudformation:ExecuteChangeSet
+    resource: "arn:aws:cloudformation:us-east-1:111122223333:stack/devops-agent/*"
+    expect: implicitDeny
+  # Private/third-party resource type registration would let the pipeline
+  # register a handler that runs with a role of its choosing.
+  - name: sim-cfn-register-type-denied
+    kind: simulate
+    action: cloudformation:RegisterType
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-cfn-set-type-configuration-denied
+    kind: simulate
+    action: cloudformation:SetTypeConfiguration
+    resource: "*"
+    expect: implicitDeny
+
+  # ---- simulate: adjacent personas' privileges stay out ----
+  # Service registration, the Operator Web App and console login are b2/b3.
+  - name: sim-register-service-denied
+    kind: simulate
+    action: aidevops:RegisterService
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-enable-operator-app-denied
+    kind: simulate
+    action: aidevops:EnableOperatorApp
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-create-one-time-login-session-denied
+    kind: simulate
+    action: aidevops:CreateOneTimeLoginSession
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Integration credentials are b4; vended log delivery is b7.
+  - name: sim-create-secret-denied
+    kind: simulate
+    action: secretsmanager:CreateSecret
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-put-delivery-source-denied
+    kind: simulate
+    action: logs:PutDeliverySource
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
+    expect: implicitDeny
+
+  # ---- no `real` probes ----
+  # A real awscc apply is the only thing that would verify the Cloud Control ->
+  # handler permission mapping, and it needs an onboarded account plus a
+  # terraform run with the awscc provider inside the probe step — neither exists
+  # in this harness today (D1). Real `aidevops` calls would also leave an Agent
+  # Space behind that the destroy step cannot reliably remove. See README.

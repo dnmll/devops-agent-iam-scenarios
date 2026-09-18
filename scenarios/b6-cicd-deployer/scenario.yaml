@@ -1,0 +1,75 @@
+id: b6-cicd-deployer
+plane: B
+title: CI/CD deployer — DevOps Agent resources via Cloud Control API (Terraform awscc)
+description: >
+  Permissions a pipeline identity needs to deploy AWS DevOps Agent resources
+  with Terraform's awscc provider (awscc_devopsagent_agent_space,
+  awscc_devopsagent_association), which calls the Cloud Control API rather than
+  the DevOps Agent API directly. Two layers are required: the Cloud Control
+  entry-point actions (CreateResource / GetResource / UpdateResource /
+  DeleteResource / ListResources, IAM prefix `cloudformation:`) AND the
+  underlying aidevops CRUD the resource handler performs on the caller's behalf.
+  Plus iam:PassRole scoped to DevOpsAgentRole-* so the handler can hand the
+  pre-created Plane-A roles to the service. The exact Cloud Control -> handler
+  permission mapping is UNVERIFIED and needs a live b6 validation pass (see
+  README and docs/decisions.md D1); CloudFormation stack operations are
+  deliberately excluded — awscc is stackless.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-getting-started-with-aws-devops-agent-using-terraform.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/cicd-deployer-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+  "DevOpsAgentRole-": "iamscn-b6-dar-"
+required_conditions:
+  # The whole least-privilege story of the pipeline identity rests on this: a
+  # PassRole grant without iam:PassedToService lets the pipeline hand any
+  # DevOpsAgentRole-* role to any service that will take it.
+  - artifact: policies/cicd-deployer-policy.json
+    action: iam:PassRole
+    condition_key: iam:PassedToService
+    expected: aidevops.amazonaws.com
+forbidden_actions:
+  # Role/policy provisioning is scenario b1 (split duty): the pipeline passes
+  # pre-created roles, it never mints them. Without this, "deploy an Agent
+  # Space" becomes "create a role with AdministratorAccess and pass it".
+  - iam:CreateRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:DeleteRole
+  - iam:CreateServiceLinkedRole
+  # awscc is stackless — it calls Cloud Control directly and keeps state in the
+  # terraform state file. Any cloudformation stack/stackset/type action here
+  # would be an unused escalation path (a stack can create arbitrary
+  # resources), so the artifact carries only the Cloud Control API actions,
+  # which happen to share the `cloudformation:` IAM prefix.
+  - cloudformation:CreateStack
+  - cloudformation:UpdateStack
+  - cloudformation:DeleteStack
+  - cloudformation:CreateChangeSet
+  - cloudformation:ExecuteChangeSet
+  - cloudformation:CreateStackSet
+  - cloudformation:RegisterType
+  - cloudformation:SetTypeConfiguration
+  # Credential storage for third-party integrations is b4; log delivery is b7;
+  # Operator Web App enablement and service registration stay with the b2
+  # installer persona.
+  - secretsmanager:CreateSecret
+  - secretsmanager:GetSecretValue
+  - aidevops:RegisterService
+  - aidevops:EnableOperatorApp
+  - aidevops:CreateOneTimeLoginSession
+# No parliament_suppressions: this artifact is clean at full linter strength
+# (only the auto-downgraded `aidevops` UNKNOWN_PREFIX findings remain). In
+# particular RESOURCE_STAR is NOT flagged on the Cloud Control statement,
+# because parliament's action table — sourced from the same Service
+# Authorization Reference — records those actions as taking no resource types,
+# so Resource "*" is the expected scope rather than an over-grant. Leaving the
+# list empty keeps RESOURCE_STAR gating any FUTURE edit here at full strength.
+# See README → "Why Resource: \"*\" on the Cloud Control statement is
+# acceptable here" for the security argument.
