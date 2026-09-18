@@ -1,0 +1,55 @@
+id: b4-secrets-manager
+plane: B
+title: Third-party integration registrar — credentials stored in Secrets Manager
+description: >
+  Permissions the human (or pipeline identity) needs when registering a
+  third-party tool integration — Dynatrace, Datadog, PagerDuty, ServiceNow,
+  GitHub/GitLab, an MCP server — whose client secret / API key AWS DevOps Agent
+  stores in AWS Secrets Manager. Create and populate secrets under one
+  documented name prefix, describe and tag them, and list secrets to pick a
+  name. The registrar deliberately cannot read a secret back
+  (secretsmanager:GetSecretValue) or delete one: the DevOps Agent service reads
+  the credential, the installer only writes it. Agent Space and service
+  registration themselves stay in b2.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-encryption-at-rest-for-devops-agent.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-connecting-mcp-servers.html
+artifacts:
+  - policies/integration-registrar-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+  # Harness resources live in the iamscn- namespace; the customer-facing
+  # artifact ships the documented devops-agent/ prefix.
+  "devops-agent/": "iamscn-b4/"
+required_conditions:
+  - artifact: policies/integration-registrar-policy.json
+    action: secretsmanager:CreateSecret
+    condition_key: secretsmanager:Name
+    expected: devops-agent/*
+forbidden_actions:
+  # The registrar writes credentials; it never reads them back and never
+  # destroys them. Reading is the DevOps Agent service's job (Plane A).
+  - secretsmanager:GetSecretValue
+  - secretsmanager:DeleteSecret
+  - secretsmanager:GetResourcePolicy
+  - secretsmanager:PutResourcePolicy
+  - secretsmanager:UpdateSecret
+  - secretsmanager:RestoreSecret
+  # Agent Space / service registration is scenario b2; this persona only
+  # provisions the credential store.
+  - aidevops:*
+  - iam:PassRole
+  - iam:CreateRole
+parliament_suppressions:
+  - issue: RESOURCE_STAR
+    reason: >
+      secretsmanager:ListSecrets is an account-level enumeration API — it takes
+      no secret ARN, so IAM only accepts Resource "*" for it (this matches the
+      AIDevOpsOperatorAppAccessPolicy managed policy, which also grants
+      ListSecrets on "*"). Every other statement is pinned to the
+      secret:devops-agent/* name prefix.
