@@ -1,0 +1,134 @@
+# Simulate-only scenario, for the same two structural reasons as a1:
+#
+# 1. policies/trust-policy.json is a role *trust* policy (Principal, no
+#    Resource). iam:SimulateCustomPolicy accepts identity policies only, so the
+#    trust document is validated statically (check_required_conditions asserts
+#    the confused-deputy pair on all three STS actions) and by terraform
+#    creating the role with it verbatim. See README -> "Live validation
+#    coverage".
+# 2. The interesting runtime call — aidevops assuming this role to execute an
+#    operator-approved directed action — can only be made by the service, after
+#    a human approval in chat. There is nothing a CI probe can drive, and the
+#    harness deliberately provisions no EC2 instance or Lambda function to
+#    remediate: every probe here is `kind: simulate` against the policy
+#    artifact, so nothing outside IAM needs to exist.
+#
+# `role_under_test` names the probe anchor role (`remediation_role_arn`), whose
+# tier word "remediation" also selects policies/example-remediation-policy.json
+# as the simulated artifact (tools/probes/run_probes.py -> simulated_artifacts),
+# excluding the non-simulatable trust policy — the same mechanism a1 and b5 use.
+#
+# Resource-tag conditions are simulated by supplying the tag as a request
+# context entry (`aws:ResourceTag/DevOpsAgentRemediation`); the simulator has no
+# real resource to read tags from, which is exactly why the "tag absent" and
+# "wrong tag value" probes below matter — they assert the grant does not apply
+# when the key is missing or different.
+role_under_test: remediation_role_arn
+
+probes:
+  # ---- simulate: the two worked example allows, on an opted-in resource ----
+  - name: sim-reboot-tagged-instance
+    kind: simulate
+    action: ec2:RebootInstances
+    resource: "arn:aws:ec2:us-east-1:111122223333:instance/i-0123456789abcdef0"
+    context:
+      aws:ResourceTag/DevOpsAgentRemediation: allowed
+    expect: allowed
+  - name: sim-update-tagged-function-configuration
+    kind: simulate
+    action: lambda:UpdateFunctionConfiguration
+    resource: "arn:aws:lambda:us-east-1:111122223333:function:iamscn-a3-example"
+    context:
+      aws:ResourceTag/DevOpsAgentRemediation: allowed
+      # Tag conditions on Lambda authorize against the function's tags; the
+      # ARN half is scoped in the statement's Resource.
+    expect: allowed
+
+  # ---- simulate: the tag opt-in is what scopes the template ----
+  # Without the resource tag the grant does not apply, so a resource only comes
+  # into the agent's reach when its owner tags it — no IAM edit required.
+  - name: sim-reboot-untagged-instance-denied
+    kind: simulate
+    action: ec2:RebootInstances
+    resource: "arn:aws:ec2:us-east-1:111122223333:instance/i-0123456789abcdef0"
+    expect: implicitDeny
+  - name: sim-reboot-wrong-tag-value-denied
+    kind: simulate
+    action: ec2:RebootInstances
+    resource: "arn:aws:ec2:us-east-1:111122223333:instance/i-0123456789abcdef0"
+    context:
+      aws:ResourceTag/DevOpsAgentRemediation: denied
+    expect: implicitDeny
+  - name: sim-update-untagged-function-configuration-denied
+    kind: simulate
+    action: lambda:UpdateFunctionConfiguration
+    resource: "arn:aws:lambda:us-east-1:111122223333:function:iamscn-a3-example"
+    expect: implicitDeny
+
+  # ---- simulate: the template grants nothing irreversible ----
+  # The agent's own guardrails refuse delete-class operations, but the ceiling
+  # must not contain them either (forbidden_actions asserts the same statically).
+  - name: sim-terminate-instances-denied
+    kind: simulate
+    action: ec2:TerminateInstances
+    resource: "arn:aws:ec2:us-east-1:111122223333:instance/i-0123456789abcdef0"
+    context:
+      aws:ResourceTag/DevOpsAgentRemediation: allowed
+    expect: implicitDeny
+  - name: sim-delete-function-denied
+    kind: simulate
+    action: lambda:DeleteFunction
+    resource: "arn:aws:lambda:us-east-1:111122223333:function:iamscn-a3-example"
+    context:
+      aws:ResourceTag/DevOpsAgentRemediation: allowed
+    expect: implicitDeny
+  - name: sim-delete-bucket-denied
+    kind: simulate
+    action: s3:DeleteBucket
+    resource: "arn:aws:s3:::iamscn-a3-example-bucket"
+    expect: implicitDeny
+  - name: sim-schedule-key-deletion-denied
+    kind: simulate
+    action: kms:ScheduleKeyDeletion
+    resource: "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"
+    expect: implicitDeny
+
+  # ---- simulate: no privilege acquisition, no lateral move ----
+  # An elevated role that can write IAM stops being a bounded ceiling.
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgent-ElevatedAction-example"
+    expect: implicitDeny
+  - name: sim-attach-role-policy-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgent-ElevatedAction-example"
+    expect: implicitDeny
+  # Self-escalation guard: the elevated role must not be able to widen who can
+  # assume it, or which role the association registers.
+  - name: sim-update-assume-role-policy-denied
+    kind: simulate
+    action: iam:UpdateAssumeRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgent-ElevatedAction-example"
+    expect: implicitDeny
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgent-ElevatedAction-example"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  # Registering the elevated role on the association is a human's call (b2);
+  # the role itself never touches Agent Space configuration.
+  - name: sim-update-association-denied
+    kind: simulate
+    action: aidevops:UpdateAssociation
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Credential reads are the integration owner's scope (b4), not remediation.
+  - name: sim-get-secret-value-denied
+    kind: simulate
+    action: secretsmanager:GetSecretValue
+    resource: "*"
+    expect: implicitDeny
