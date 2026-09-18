@@ -1,0 +1,6 @@
+parliament>=1.6.0
+setuptools>=70,<81      # parliament imports pkg_resources: absent from py3.12+ venvs, removed in setuptools>=81
+PyYAML>=6.0
+jsonschema>=4.21
+python-hcl2>=4.3
+boto3>=1.34

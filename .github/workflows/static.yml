@@ -1,0 +1,46 @@
+name: static
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install check dependencies
+        run: python3 -m pip install -r tools/requirements.txt -r tools/requirements-dev.txt
+      - name: Static checks (same command as the ABCA build gate)
+        run: python3 -m tools.checks
+      - name: Check-suite unit tests
+        run: python3 -m pytest tools/checks/tests -q
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checks-report
+          path: checks-report.json
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: fmt
+        run: terraform fmt -check -recursive
+      - name: validate scenario harnesses
+        run: |
+          set -euo pipefail
+          for dir in scenarios/*/terraform terraform/bootstrap; do
+            [ -d "$dir" ] || continue
+            echo "== $dir"
+            terraform -chdir="$dir" init -backend=false -input=false > /dev/null
+            terraform -chdir="$dir" validate -no-color
+          done

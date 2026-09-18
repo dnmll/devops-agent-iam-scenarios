@@ -1,0 +1,31 @@
+# AWS DevOps Agent IAM scenario matrix
+
+Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) → `live` (passed a live-validate run).
+
+## Plane A — roles the DevOps Agent service assumes
+
+| Id | Title | Deliverable | Status |
+|---|---|---|---|
+| `a1-agentspace-role` | Agent Space role (primary account) | Trust policy (`aidevops.amazonaws.com` + SourceAccount/SourceArn) + `AIDevOpsAgentAccessPolicy` + Resource Explorer SLR inline; restricted-template variant | planned |
+| `a2-secondary-account-role` | Secondary account role (cross-account) | Same permission shape as a1, trust scoped to the Agent Space in the monitoring account | planned |
+| `a3-elevated-directed-actions` | Elevated role for directed actions | Pattern + worked example for operator-approved remediation writes | planned |
+| `a4-operator-webapp-role` | Operator Web App role | `AIDevOpsOperatorAppAccessPolicy`-derived, session-tag (`AgentSpaceId`) scoped | planned |
+| `a5-service-linked-roles` | Service-linked roles | `AWSServiceRoleForAIDevOps` (vended metrics) + `AWSServiceRoleForLogDelivery` (Firehose logs) creation guidance | planned |
+
+## Plane B — human / CI identities
+
+| Id | Title | Deliverable | Status |
+|---|---|---|---|
+| `b1-iam-preprovisioner` | IAM admin pre-provisioner (split duty) | Role/policy CRUD scoped to DevOps Agent role names | planned |
+| `b2-installer` | Installer — create/configure an Agent Space | aidevops lifecycle + associations + Operator App + scoped PassRole + SLR creation | static |
+| `b3-webapp-tiers` | Web App / console user tiers | Admin / Operator / Read-only policies | planned |
+| `b4-secrets-manager` | Third-party integration via Secrets Manager | secretsmanager Create/Put/List/Tag + secret-policy pattern | planned |
+| `b5-customer-kms-key` | Customer-managed KMS key | Caller policy (`kms:ViaService`) + key policy (service principal, SourceArn + EncryptionContext, agentspace/* and service/* statements) | planned |
+| `b6-cicd-deployer` | CI/CD deployer (Cloud Control / awscc) | cloudcontrol + aidevops + PassRole; permission map needs live verification | planned |
+| `b7-log-delivery` | Vended log delivery configurer | `aidevops:AllowVendedLogDeliveryForResource` + logs delivery V2 APIs; 2 scopes × 3 targets (CloudWatch Logs / S3 / Firehose), S3+KMS sub-variant | planned |
+
+## Cross-cutting test cases (attach to any scenario)
+
+- Association actions authorize against **both** the association ARN and the Agent Space ARN (two-statement pattern for tag conditions).
+- Tags live on Agent Spaces only — `aws:ResourceTag` conditions never match associations.
+- Operator App policies scope by `${aws:PrincipalTag/AgentSpaceId}` session tag.

@@ -1,0 +1,123 @@
+name: live-validate
+on:
+  pull_request:
+    paths:
+      - "scenarios/**"
+      - "terraform/**"
+      - "tools/probes/**"
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Scenario id (e.g. b2-installer)"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+# One live run at a time; later runs queue rather than clobber sandbox state.
+concurrency:
+  group: live-sandbox
+  cancel-in-progress: false
+
+jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      scenarios: ${{ steps.pick.outputs.scenarios }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: pick
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.scenario || '' }}" ]; then
+            ids='["${{ github.event.inputs.scenario }}"]'
+          else
+            ids=$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD -- scenarios/ \
+              | cut -d/ -f2 | sort -u | grep -v '^_' \
+              | while read -r id; do
+                  status=$(grep -E '^status:' "scenarios/$id/scenario.yaml" | awk '{print $2}')
+                  [ "$status" = "planned" ] || echo "$id"
+                done \
+              | jq -R . | jq -sc .)
+          fi
+          echo "scenarios=$ids" >> "$GITHUB_OUTPUT"
+
+  validate:
+    needs: select
+    if: needs.select.outputs.scenarios != '[]'
+    runs-on: ubuntu-latest
+    # Human gate + OIDC sub pin: credentials release only on reviewer approval.
+    environment: sandbox
+    strategy:
+      max-parallel: 1
+      matrix:
+        scenario: ${{ fromJSON(needs.select.outputs.scenarios) }}
+    env:
+      TF_DIR: scenarios/${{ matrix.scenario }}/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python3 -m pip install -r tools/requirements.txt
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy
+        run: |
+          terraform -chdir="$TF_DIR" init -input=false \
+            -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}" \
+            -backend-config="region=${{ vars.AWS_REGION }}"
+          terraform -chdir="$TF_DIR" apply -auto-approve -input=false \
+            -var "ci_role_arn=${{ vars.AWS_ROLE_ARN }}" \
+            -var "boundary_arn=${{ vars.BOUNDARY_ARN }}" \
+            -var "region=${{ vars.AWS_REGION }}" \
+            -var "run_id=${{ github.run_id }}"
+          sleep 20   # IAM propagation head start; probes also retry
+          terraform -chdir="$TF_DIR" output -json > tf-outputs.json
+
+      - name: Probe
+        run: |
+          python3 tools/probes/run_probes.py \
+            --scenario "${{ matrix.scenario }}" \
+            --tf-outputs tf-outputs.json \
+            --report probe-results.json
+
+      - name: Destroy
+        if: always()
+        run: |
+          terraform -chdir="$TF_DIR" destroy -auto-approve -input=false \
+            -var "ci_role_arn=${{ vars.AWS_ROLE_ARN }}" \
+            -var "boundary_arn=${{ vars.BOUNDARY_ARN }}" \
+            -var "region=${{ vars.AWS_REGION }}" \
+            -var "run_id=${{ github.run_id }}" || echo "::error::destroy failed — sweeper must catch run ${{ github.run_id }}"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-results-${{ matrix.scenario }}
+          path: probe-results.json
+
+      - name: PR comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = `## Live validation — \`${{ matrix.scenario }}\`\n`;
+            try {
+              const r = JSON.parse(fs.readFileSync('probe-results.json', 'utf8'));
+              body += `**${r.passed}/${r.passed + r.failed} probes passed**\n\n| probe | kind | expect | result | detail |\n|---|---|---|---|---|\n`;
+              for (const p of r.results)
+                body += `| ${p.name} | ${p.kind} | ${p.expect} | ${p.pass ? '✅' : '❌'} | ${p.detail} |\n`;
+            } catch { body += '⚠️ no probe results (deploy failed?)'; }
+            github.rest.issues.createComment({
+              ...context.repo, issue_number: context.issue.number, body });

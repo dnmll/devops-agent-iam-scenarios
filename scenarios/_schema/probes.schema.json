@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Scenario probe expectations",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role_under_test", "probes"],
+  "properties": {
+    "role_under_test": {
+      "description": "Terraform output name holding the ARN of the role the probes assume",
+      "type": "string"
+    },
+    "probes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "kind", "expect"],
+        "properties": {
+          "name": { "type": "string" },
+          "kind": { "enum": ["simulate", "real"] },
+          "action": { "type": "string", "description": "simulate: IAM action to simulate" },
+          "resource": { "type": "string", "description": "simulate: resource ARN (substitutions applied)" },
+          "context": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "simulate: context keys, e.g. iam:PassedToService"
+          },
+          "service": { "type": "string", "description": "real: boto3 service name" },
+          "operation": { "type": "string", "description": "real: boto3 operation (snake_case)" },
+          "params": { "type": "object", "description": "real: operation kwargs (substitutions applied to string values)" },
+          "save_output_as": { "type": "string", "description": "real: stash a response field for later probes, e.g. agent_space_id=agentSpace.id" },
+          "expect": { "type": "string", "pattern": "^(allowed|implicitDeny|success|error:[A-Za-z]+)$" },
+          "tolerate": { "type": "array", "items": { "type": "string" }, "description": "real: error codes that also count as pass (idempotency)" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,96 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AgentSpaceLifecycle",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:CreateAgentSpace",
+        "aidevops:GetAgentSpace",
+        "aidevops:ListAgentSpaces",
+        "aidevops:UpdateAgentSpace",
+        "aidevops:DeleteAgentSpace",
+        "aidevops:TagResource",
+        "aidevops:UntagResource",
+        "aidevops:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "AgentSpaceList",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:ListAgentSpaces"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AssociationManagement",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:AssociateService",
+        "aidevops:UpdateAssociation",
+        "aidevops:DisassociateService",
+        "aidevops:GetAssociation",
+        "aidevops:ListAssociations",
+        "aidevops:ValidateAwsAssociations",
+        "aidevops:ListWebhooks"
+      ],
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "ServiceRegistration",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:RegisterService",
+        "aidevops:DeregisterService",
+        "aidevops:GetService",
+        "aidevops:ListServices",
+        "aidevops:DescribeServices"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OperatorAppConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "aidevops:EnableOperatorApp",
+        "aidevops:DisableOperatorApp",
+        "aidevops:GetOperatorApp",
+        "aidevops:UpdateOperatorAppIdpConfig"
+      ],
+      "Resource": "arn:aws:aidevops:us-east-1:111122223333:agentspace/*"
+    },
+    {
+      "Sid": "PassAgentSpaceRoles",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::111122223333:role/DevOpsAgentRole-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "aidevops.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "ViewRolesForConsoleSelection",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:ListRoles"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateDevOpsAgentServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "aidevops.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

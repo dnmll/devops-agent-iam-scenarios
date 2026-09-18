@@ -1,0 +1,41 @@
+id: b2-installer
+plane: B
+title: Installer — create and configure an Agent Space (assign-existing-role variant)
+description: >
+  Permissions a human or pipeline identity needs to create an AWS DevOps Agent
+  Agent Space, manage its account/service associations, enable the Operator Web
+  App, and pass pre-created DevOps Agent roles to the service. Assumes the
+  Plane-A roles already exist (see b1 pre-provisioner for the auto-create variant).
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-creating-an-agent-space.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/installer-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+  "DevOpsAgentRole-": "iamscn-b2-dar-"
+required_conditions:
+  - artifact: policies/installer-policy.json
+    action: iam:PassRole
+    condition_key: iam:PassedToService
+    expected: aidevops.amazonaws.com
+  - artifact: policies/installer-policy.json
+    action: iam:CreateServiceLinkedRole
+    condition_key: iam:AWSServiceName
+    expected: aidevops.amazonaws.com
+forbidden_actions:
+  - aidevops:*
+  - iam:CreateRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+parliament_suppressions:
+  - issue: RESOURCE_STAR
+    reason: >
+      ViewRolesForConsoleSelection intentionally grants read-only iam:GetRole /
+      iam:ListRoles on * so the console role-picker dropdown works in the
+      assign-existing-role flow; documented in the scenario README.

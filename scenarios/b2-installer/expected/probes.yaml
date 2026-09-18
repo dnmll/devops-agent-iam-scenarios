@@ -1,0 +1,70 @@
+role_under_test: installer_role_arn
+
+probes:
+  # ---- simulate: positive matrix ----
+  - name: sim-create-agentspace
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-passrole-to-aidevops
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: allowed
+  - name: sim-create-slr
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: allowed
+
+  # ---- simulate: negative matrix (least-privilege proof) ----
+  - name: sim-passrole-to-lambda-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: lambda.amazonaws.com
+    expect: implicitDeny
+  - name: sim-passrole-other-role-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/SomeOtherRole"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-new"
+    expect: implicitDeny
+  - name: sim-secretsmanager-denied
+    kind: simulate
+    action: secretsmanager:CreateSecret
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-kms-decrypt-denied
+    kind: simulate
+    action: kms:Decrypt
+    resource: "*"
+    expect: implicitDeny
+
+  # ---- real: authoritative allow-path (assumes role_under_test) ----
+  - name: real-list-agent-spaces
+    kind: real
+    service: aidevops
+    operation: list_agent_spaces
+    params: {}
+    expect: success
+  - name: real-create-slr
+    kind: real
+    service: iam
+    operation: create_service_linked_role
+    params:
+      AWSServiceName: aidevops.amazonaws.com
+    tolerate: [InvalidInput]
+    expect: success

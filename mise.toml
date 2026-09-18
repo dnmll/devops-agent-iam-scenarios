@@ -1,0 +1,18 @@
+[tools]
+python = "3.13"
+
+[tasks.install]
+description = "Install check/probe dependencies"
+run = "python3 -m pip install -r tools/requirements.txt -r tools/requirements-dev.txt"
+
+[tasks.build]
+description = "Static validation of all scenarios (same command as ABCA buildCommand and CI)"
+run = "python3 -m tools.checks"
+
+[tasks.lint]
+description = "Alias of build; policy repos have no separate lint"
+run = "python3 -m tools.checks"
+
+[tasks.test]
+description = "Unit tests for the check suite"
+run = "python3 -m pytest tools/checks/tests -q"

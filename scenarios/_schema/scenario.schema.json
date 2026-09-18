@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ABCA IAM scenario manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "plane", "title", "description", "status", "docs", "artifacts"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[ab][0-9]+[a-z0-9-]*$" },
+    "plane": { "enum": ["A", "B"] },
+    "title": { "type": "string", "maxLength": 120 },
+    "description": { "type": "string" },
+    "status": { "enum": ["planned", "draft", "static", "live"] },
+    "docs": { "type": "array", "items": { "type": "string", "format": "uri" }, "minItems": 1 },
+    "artifacts": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "terraform_dir": { "type": "string", "default": "terraform" },
+    "probes": { "type": "string" },
+    "substitutions": { "type": "object", "additionalProperties": { "type": "string" } },
+    "required_conditions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifact", "action", "condition_key", "expected"],
+        "properties": {
+          "artifact": { "type": "string" },
+          "action": { "type": "string" },
+          "condition_key": { "type": "string" },
+          "expected": { "type": "string" }
+        }
+      }
+    },
+    "forbidden_actions": { "type": "array", "items": { "type": "string" } },
+    "parliament_suppressions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["issue", "reason"],
+        "properties": {
+          "issue": { "type": "string" },
+          "reason": { "type": "string", "minLength": 10 }
+        }
+      }
+    }
+  }
+}
