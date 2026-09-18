@@ -1,0 +1,123 @@
+# Amazon Data Firehose destination matrix. Not the scenario's active probes file
+# (scenario.yaml `probes:` points at probes.yaml — one live run exercises one
+# destination); ready to wire up when the probes schema grows multi-role support.
+# The iamscn-b7-firehose role is deployed by the same terraform harness.
+role_under_test: firehose_role_arn
+
+probes:
+  # ---- simulate: the DevOps Agent side — BOTH scope ARNs ----
+  - name: sim-allow-vended-log-delivery-agentspace
+    kind: simulate
+    action: aidevops:AllowVendedLogDeliveryForResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-allow-vended-log-delivery-service
+    kind: simulate
+    action: aidevops:AllowVendedLogDeliveryForResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:service/probe"
+    expect: allowed
+
+  # ---- simulate: the common delivery core ----
+  - name: sim-put-delivery-source
+    kind: simulate
+    action: logs:PutDeliverySource
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
+    expect: allowed
+  - name: sim-put-delivery-destination
+    kind: simulate
+    action: logs:PutDeliveryDestination
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-destination:devops-agent-probe"
+    expect: allowed
+  - name: sim-create-delivery
+    kind: simulate
+    action: logs:CreateDelivery
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
+    expect: allowed
+  - name: sim-describe-deliveries
+    kind: simulate
+    action: logs:DescribeDeliveries
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: Firehose target additions ----
+  - name: sim-firehose-describe-delivery-stream
+    kind: simulate
+    action: firehose:DescribeDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: allowed
+  - name: sim-firehose-tag-delivery-stream
+    kind: simulate
+    action: firehose:TagDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: allowed
+  # The AWSServiceRoleForLogDelivery SLR: the Firehose delivery path is the one
+  # destination that needs it, pinned by iam:AWSServiceName.
+  - name: sim-firehose-create-log-delivery-slr
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: delivery.logs.amazonaws.com
+    expect: allowed
+  # Any other service's SLR is out of reach — that is the whole point of the
+  # iam:AWSServiceName condition (required_conditions asserts it statically).
+  - name: sim-firehose-create-other-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  # Streams outside the documented delivery stream stay out of reach.
+  - name: sim-firehose-tag-other-stream-denied
+    kind: simulate
+    action: firehose:TagDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/prod-clickstream"
+    expect: implicitDeny
+  # Inspecting and tagging a stream is not owning it, and not writing to it.
+  - name: sim-firehose-create-delivery-stream-denied
+    kind: simulate
+    action: firehose:CreateDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: implicitDeny
+  - name: sim-firehose-put-record-denied
+    kind: simulate
+    action: firehose:PutRecord
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: implicitDeny
+
+  # ---- simulate: cross-target denies ----
+  - name: sim-firehose-cwl-create-log-group-denied
+    kind: simulate
+    action: logs:CreateLogGroup
+    resource: "arn:aws:logs:us-east-1:111122223333:log-group:/aws/vendedlogs/devops-agent/probe"
+    expect: implicitDeny
+  - name: sim-firehose-cwl-put-resource-policy-denied
+    kind: simulate
+    action: logs:PutResourcePolicy
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-firehose-s3-put-bucket-policy-denied
+    kind: simulate
+    action: s3:PutBucketPolicy
+    resource: "arn:aws:s3:::devops-agent-vended-logs"
+    expect: implicitDeny
+
+  # ---- simulate: adjacent-privilege matrix ----
+  - name: sim-firehose-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-firehose-register-service-denied
+    kind: simulate
+    action: aidevops:RegisterService
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-firehose-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-probe"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny

@@ -1,0 +1,198 @@
+# probes.schema.json carries a single top-level `role_under_test`, so one live
+# run exercises one destination. This file targets the **CloudWatch Logs**
+# destination — the default in the DevOps Agent console flow. The S3 and
+# Firehose matrices live in probes-s3.yaml / probes-firehose.yaml, deployed by
+# the same harness. See README → "Live validation coverage".
+#
+# The tier name in `role_under_test` ("cloudwatch") also selects which artifact
+# the simulate probes evaluate (tools/probes/run_probes.py → simulated_artifacts).
+# That is what makes the cross-target denies below meaningful: they assert the
+# CloudWatch Logs artifact alone, not the union of all three.
+role_under_test: cloudwatch_role_arn
+
+probes:
+  # ---- not probeable: actions missing from the IAM policy simulator ----
+  # `aidevops:AllowVendedLogDeliveryForResource` (both the agentspace/* and the
+  # service/* scope) and `logs:DeleteDeliverySource` are absent from the policy
+  # simulator's action database, so SimulateCustomPolicy returns implicitDeny for
+  # them even when the artifact lists the action explicitly — the same result a
+  # made-up action name produces. Their grants ARE correct (the identical
+  # statement's `logs:DeleteDeliveryDestination` simulates `allowed`, and both
+  # actions match when the policy is rewritten to `Action: "*"`), so the probes
+  # were removed rather than the permissions weakened. See README → "Actions the
+  # IAM policy simulator cannot validate".
+  #
+  # ---- simulate: the common delivery core (CloudWatch Logs delivery V2 APIs) ----
+  - name: sim-put-delivery-source
+    kind: simulate
+    action: logs:PutDeliverySource
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
+    expect: allowed
+  - name: sim-put-delivery-destination
+    kind: simulate
+    action: logs:PutDeliveryDestination
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-destination:devops-agent-probe"
+    expect: allowed
+  - name: sim-create-delivery
+    kind: simulate
+    action: logs:CreateDelivery
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
+    expect: allowed
+  - name: sim-get-delivery
+    kind: simulate
+    action: logs:GetDelivery
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
+    expect: allowed
+  - name: sim-get-delivery-source
+    kind: simulate
+    action: logs:GetDeliverySource
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
+    expect: allowed
+  - name: sim-get-delivery-destination
+    kind: simulate
+    action: logs:GetDeliveryDestination
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-destination:devops-agent-probe"
+    expect: allowed
+  - name: sim-update-delivery-configuration
+    kind: simulate
+    action: logs:UpdateDeliveryConfiguration
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
+    expect: allowed
+  - name: sim-delete-delivery
+    kind: simulate
+    action: logs:DeleteDelivery
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
+    expect: allowed
+  # `logs:DeleteDeliverySource` is granted by the same statement but is not in the
+  # simulator's action database — see the note at the top of this file.
+  - name: sim-delete-delivery-destination
+    kind: simulate
+    action: logs:DeleteDeliveryDestination
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-destination:devops-agent-probe"
+    expect: allowed
+  # The three Describe* list APIs are account-level (no ARN form).
+  - name: sim-describe-deliveries
+    kind: simulate
+    action: logs:DescribeDeliveries
+    resource: "*"
+    expect: allowed
+  - name: sim-describe-delivery-sources
+    kind: simulate
+    action: logs:DescribeDeliverySources
+    resource: "*"
+    expect: allowed
+  - name: sim-describe-delivery-destinations
+    kind: simulate
+    action: logs:DescribeDeliveryDestinations
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: CloudWatch Logs target additions ----
+  - name: sim-cwl-create-log-group-in-vendedlogs-prefix
+    kind: simulate
+    action: logs:CreateLogGroup
+    resource: "arn:aws:logs:us-east-1:111122223333:log-group:/aws/vendedlogs/devops-agent/probe"
+    expect: allowed
+  - name: sim-cwl-describe-log-groups
+    kind: simulate
+    action: logs:DescribeLogGroups
+    resource: "*"
+    expect: allowed
+  # The account-level CloudWatch Logs resource policy that lets
+  # delivery.logs.amazonaws.com write into the destination log group.
+  - name: sim-cwl-put-resource-policy
+    kind: simulate
+    action: logs:PutResourcePolicy
+    resource: "*"
+    expect: allowed
+  - name: sim-cwl-describe-resource-policies
+    kind: simulate
+    action: logs:DescribeResourcePolicies
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: log groups outside the vended-logs prefix ----
+  - name: sim-cwl-create-log-group-other-prefix-denied
+    kind: simulate
+    action: logs:CreateLogGroup
+    resource: "arn:aws:logs:us-east-1:111122223333:log-group:/aws/lambda/prod-payments"
+    expect: implicitDeny
+
+  # ---- simulate: cross-target denies — the CWL artifact carries no S3 and no
+  # Firehose destination permissions. Each destination is its own deliverable;
+  # picking one must not hand out the other two. ----
+  - name: sim-cwl-firehose-tag-delivery-stream-denied
+    kind: simulate
+    action: firehose:TagDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: implicitDeny
+  - name: sim-cwl-firehose-describe-delivery-stream-denied
+    kind: simulate
+    action: firehose:DescribeDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: implicitDeny
+  - name: sim-cwl-s3-put-bucket-policy-denied
+    kind: simulate
+    action: s3:PutBucketPolicy
+    resource: "arn:aws:s3:::devops-agent-vended-logs"
+    expect: implicitDeny
+  - name: sim-cwl-s3-get-bucket-policy-denied
+    kind: simulate
+    action: s3:GetBucketPolicy
+    resource: "arn:aws:s3:::devops-agent-vended-logs"
+    expect: implicitDeny
+  # The log-delivery service-linked role is a Firehose-target prerequisite only.
+  - name: sim-cwl-create-log-delivery-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: delivery.logs.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: the configurer wires delivery up, it never reads the logs ----
+  - name: sim-get-log-events-denied
+    kind: simulate
+    action: logs:GetLogEvents
+    resource: "arn:aws:logs:us-east-1:111122223333:log-group:/aws/vendedlogs/devops-agent/probe:log-stream:*"
+    expect: implicitDeny
+  - name: sim-filter-log-events-denied
+    kind: simulate
+    action: logs:FilterLogEvents
+    resource: "arn:aws:logs:us-east-1:111122223333:log-group:/aws/vendedlogs/devops-agent/probe"
+    expect: implicitDeny
+
+  # ---- simulate: adjacent-privilege matrix (other scenarios' personas) ----
+  # Enabling vended logs is not Agent Space administration: b2 owns the
+  # lifecycle, b1 owns role/policy CRUD, b4 owns credential storage.
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-delete-agentspace-denied
+    kind: simulate
+    action: aidevops:DeleteAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-register-service-denied
+    kind: simulate
+    action: aidevops:RegisterService
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-probe"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+
+  # ---- no `real` probes in this scenario ----
+  # A real PutDeliverySource for a DevOps Agent resource needs an Agent Space
+  # that exists in an onboarded account (the sandbox has never been onboarded —
+  # the same limitation documented in b3 and b4), and a real PutResourcePolicy
+  # would mutate the sandbox account's single, account-wide CloudWatch Logs
+  # resource-policy document, which the destroy step cannot safely restore.
+  # SimulateCustomPolicy answers the IAM question here exactly and leaves
+  # nothing behind.

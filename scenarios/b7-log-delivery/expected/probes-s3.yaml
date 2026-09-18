@@ -1,0 +1,105 @@
+# S3 destination matrix. Not the scenario's active probes file (scenario.yaml
+# `probes:` points at probes.yaml — one live run exercises one destination);
+# ready to wire up when the probes schema grows multi-role support. The
+# iamscn-b7-s3 role is deployed by the same terraform harness.
+role_under_test: s3_role_arn
+
+probes:
+  # ---- simulate: the DevOps Agent side — BOTH scope ARNs ----
+  - name: sim-allow-vended-log-delivery-agentspace
+    kind: simulate
+    action: aidevops:AllowVendedLogDeliveryForResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-allow-vended-log-delivery-service
+    kind: simulate
+    action: aidevops:AllowVendedLogDeliveryForResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:service/probe"
+    expect: allowed
+
+  # ---- simulate: the common delivery core ----
+  - name: sim-put-delivery-source
+    kind: simulate
+    action: logs:PutDeliverySource
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
+    expect: allowed
+  - name: sim-put-delivery-destination
+    kind: simulate
+    action: logs:PutDeliveryDestination
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-destination:devops-agent-probe"
+    expect: allowed
+  - name: sim-create-delivery
+    kind: simulate
+    action: logs:CreateDelivery
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
+    expect: allowed
+  - name: sim-describe-deliveries
+    kind: simulate
+    action: logs:DescribeDeliveries
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: S3 target additions — the destination bucket policy ----
+  - name: sim-s3-get-bucket-policy
+    kind: simulate
+    action: s3:GetBucketPolicy
+    resource: "arn:aws:s3:::devops-agent-vended-logs"
+    expect: allowed
+  - name: sim-s3-put-bucket-policy
+    kind: simulate
+    action: s3:PutBucketPolicy
+    resource: "arn:aws:s3:::devops-agent-vended-logs"
+    expect: allowed
+  # Scoped to the one delivery bucket: any other bucket's policy is out of reach.
+  - name: sim-s3-put-bucket-policy-other-bucket-denied
+    kind: simulate
+    action: s3:PutBucketPolicy
+    resource: "arn:aws:s3:::prod-customer-data"
+    expect: implicitDeny
+  # Writing the bucket policy is not reading the bucket: no object access here.
+  - name: sim-s3-get-object-denied
+    kind: simulate
+    action: s3:GetObject
+    resource: "arn:aws:s3:::devops-agent-vended-logs/AWSLogs/111122223333/probe.gz"
+    expect: implicitDeny
+  - name: sim-s3-put-object-denied
+    kind: simulate
+    action: s3:PutObject
+    resource: "arn:aws:s3:::devops-agent-vended-logs/AWSLogs/111122223333/probe.gz"
+    expect: implicitDeny
+
+  # ---- simulate: cross-target denies ----
+  - name: sim-s3-cwl-create-log-group-denied
+    kind: simulate
+    action: logs:CreateLogGroup
+    resource: "arn:aws:logs:us-east-1:111122223333:log-group:/aws/vendedlogs/devops-agent/probe"
+    expect: implicitDeny
+  - name: sim-s3-cwl-put-resource-policy-denied
+    kind: simulate
+    action: logs:PutResourcePolicy
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-s3-firehose-tag-delivery-stream-denied
+    kind: simulate
+    action: firehose:TagDeliveryStream
+    resource: "arn:aws:firehose:us-east-1:111122223333:deliverystream/devops-agent-vended-logs"
+    expect: implicitDeny
+  - name: sim-s3-create-log-delivery-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: delivery.logs.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: adjacent-privilege matrix ----
+  - name: sim-s3-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-s3-register-service-denied
+    kind: simulate
+    action: aidevops:RegisterService
+    resource: "*"
+    expect: implicitDeny
