@@ -1,0 +1,100 @@
+id: b7-log-delivery
+plane: B
+title: Vended log delivery configurer — CloudWatch Logs, S3 or Firehose target
+description: >
+  Permissions the human (or pipeline identity) needs to turn on AWS DevOps Agent
+  vended logs for an Agent Space or a registered service and point them at one
+  of the three supported destinations. Three artifacts, one per destination —
+  CloudWatch Logs, Amazon S3 and Amazon Data Firehose — each carrying the same
+  core: aidevops:AllowVendedLogDeliveryForResource on BOTH DevOps Agent scope
+  ARNs (agentspace/* and service/*) plus the CloudWatch Logs delivery V2 APIs
+  (PutDeliverySource / PutDeliveryDestination / CreateDelivery and their
+  Get/Describe/Delete/Update siblings), and then only the destination-side
+  permissions that its own target requires. The configurer turns delivery on;
+  it cannot create Agent Spaces, register services or read any delivered log.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-vended-logs-and-metrics.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/cloudwatch-logs-target.json
+  - policies/s3-target.json
+  - policies/firehose-target.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+  # Harness resources live in the iamscn- namespace; the customer-facing
+  # artifacts ship the documented devops-agent naming.
+  "devops-agent-vended-logs": "iamscn-b7-vended-logs"
+  "/aws/vendedlogs/devops-agent/": "/aws/vendedlogs/iamscn-b7/"
+required_conditions:
+  # The Firehose target is the only one that provisions the log-delivery SLR;
+  # pinning iam:AWSServiceName is what keeps that grant from becoming a
+  # create-any-service-linked-role primitive.
+  - artifact: policies/firehose-target.json
+    action: iam:CreateServiceLinkedRole
+    condition_key: iam:AWSServiceName
+    expected: delivery.logs.amazonaws.com
+forbidden_actions:
+  # The configurer wires delivery up; it never reads what was delivered. A
+  # reader grant here would turn "I enabled logging" into "I can read every
+  # investigation transcript in the account".
+  - logs:GetLogEvents
+  - logs:FilterLogEvents
+  - logs:StartQuery
+  - s3:GetObject
+  - s3:PutObject
+  - firehose:PutRecord
+  - firehose:PutRecordBatch
+  # Firehose stream and log-group creation on the destination side stays with
+  # whoever owns the destination; this persona only inspects/points at it.
+  - firehose:CreateDeliveryStream
+  - firehose:DeleteDeliveryStream
+  - firehose:UpdateDestination
+  # Agent Space lifecycle and service registration are scenario b2; role/policy
+  # CRUD is b1; credential storage is b4.
+  - aidevops:CreateAgentSpace
+  - aidevops:DeleteAgentSpace
+  - aidevops:RegisterService
+  - aidevops:AssociateService
+  - iam:PassRole
+  - iam:CreateRole
+  - secretsmanager:GetSecretValue
+parliament_suppressions:
+  - issue: RESOURCE_STAR
+    reason: >
+      Two families of delivery APIs are account-level and take no ARN, so IAM
+      only accepts Resource "*" for them. (1) logs:DescribeDeliveries,
+      DescribeDeliverySources and DescribeDeliveryDestinations are list APIs
+      over the whole account — there is no per-resource form, and the console
+      flow calls them to let you pick an existing source/destination. (2) On the
+      CloudWatch Logs target, logs:DescribeLogGroups (enumeration) and
+      logs:PutResourcePolicy / logs:DescribeResourcePolicies (the account-level
+      CloudWatch Logs resource-policy document that grants
+      delivery.logs.amazonaws.com write access — one document per account, not a
+      per-log-group resource) likewise have no resource form. Every
+      delivery-source, delivery-destination, delivery, log-group, bucket,
+      Firehose stream and service-linked-role grant IS ARN-scoped.
+  - issue: RESOURCE_MISMATCH
+    reason: >
+      Parliament's IAM action table expects Resource "*" for
+      logs:DescribeLogGroups and logs:PutResourcePolicy and flags the ARN-scoped
+      CreateLogGroup statement it is grouped with. The scoped statement is
+      deliberate — logs:CreateLogGroup does authorize against a log-group ARN,
+      so the /aws/vendedlogs/devops-agent/* prefix is a real constraint, and the
+      genuinely account-level actions are split out into their own Resource "*"
+      statement (see the RESOURCE_STAR suppression).
+  - issue: RESOURCE_POLICY_PRIVILEGE_ESCALATION
+    reason: >
+      Parliament flags s3:PutBucketPolicy as self-escalation because the holder
+      could write a bucket policy granting itself s3:GetObject/PutObject. That
+      is inherent to the task: vended log delivery to S3 requires the configurer
+      to add the delivery.logs.amazonaws.com service statement to the
+      destination bucket policy, and AWS exposes no narrower API for it. It is
+      contained by scoping the statement to the single documented delivery
+      bucket ARN (never s3:*), by the absence of any s3:GetObject/PutObject
+      grant here, and — per the README — by treating the bucket as
+      delivery-only, with an SCP or bucket-owner review over
+      s3:PutBucketPolicy if the destination bucket holds anything else.

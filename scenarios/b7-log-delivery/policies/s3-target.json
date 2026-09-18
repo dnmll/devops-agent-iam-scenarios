@@ -1,0 +1,48 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowVendedLogDeliveryForDevOpsAgentResources",
+      "Effect": "Allow",
+      "Action": "aidevops:AllowVendedLogDeliveryForResource",
+      "Resource": [
+        "arn:aws:aidevops:us-east-1:111122223333:agentspace/*",
+        "arn:aws:aidevops:us-east-1:111122223333:service/*"
+      ]
+    },
+    {
+      "Sid": "ManageVendedLogDeliveryConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "logs:PutDeliverySource",
+        "logs:PutDeliveryDestination",
+        "logs:CreateDelivery",
+        "logs:GetDelivery*",
+        "logs:UpdateDeliveryConfiguration",
+        "logs:DeleteDelivery*"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:111122223333:delivery-source:*",
+        "arn:aws:logs:us-east-1:111122223333:delivery-destination:*",
+        "arn:aws:logs:us-east-1:111122223333:delivery:*"
+      ]
+    },
+    {
+      "Sid": "DescribeVendedLogDeliveryConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeDeliver*"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ManageDeliveryBucketPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPolicy"
+      ],
+      "Resource": "arn:aws:s3:::devops-agent-vended-logs"
+    }
+  ]
+}

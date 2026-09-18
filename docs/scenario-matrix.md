@@ -22,7 +22,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 | `b4-secrets-manager` | Third-party integration via Secrets Manager | secretsmanager Create/Put/Describe/List/Tag scoped to a `devops-agent/*` name prefix; no `GetSecretValue`/`DeleteSecret` (the service reads, the installer only writes) | static |
 | `b5-customer-kms-key` | Customer-managed KMS key | Caller policy (`kms:ViaService`) + key policy (service principal, SourceArn + EncryptionContext, agentspace/* and service/* statements) | planned |
 | `b6-cicd-deployer` | CI/CD deployer (Cloud Control / awscc) | cloudcontrol + aidevops + PassRole; permission map needs live verification | planned |
-| `b7-log-delivery` | Vended log delivery configurer | `aidevops:AllowVendedLogDeliveryForResource` + logs delivery V2 APIs; 2 scopes × 3 targets (CloudWatch Logs / S3 / Firehose), S3+KMS sub-variant | planned |
+| `b7-log-delivery` | Vended log delivery configurer | `aidevops:AllowVendedLogDeliveryForResource` on both scopes (`agentspace/*` + `service/*`) + logs delivery V2 APIs; one policy per destination — CloudWatch Logs / S3 / Firehose (+ log-delivery SLR pinned by `iam:AWSServiceName`), S3+KMS caveat in the README | static |
 
 ## Cross-cutting test cases (attach to any scenario)
 
