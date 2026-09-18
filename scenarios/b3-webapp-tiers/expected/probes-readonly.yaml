@@ -1,0 +1,79 @@
+# Read-only tier expectations. Same schema as probes.yaml (probes.schema.json)
+# and deployed by the same harness, but not yet wired into the live runner:
+# probes.schema.json allows a single `role_under_test` per scenario, and
+# scenario.yaml's `probes:` points at the operator matrix. Run manually with
+# `--tf-outputs` once multi-role probe support lands.
+role_under_test: readonly_role_arn
+
+probes:
+  # ---- read-only CAN read ----
+  - name: sim-readonly-get-agentspace
+    kind: simulate
+    action: aidevops:GetAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-readonly-list-backlog-tasks
+    kind: simulate
+    action: aidevops:ListBacklogTasks
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-readonly-get-recommendation
+    kind: simulate
+    action: aidevops:GetRecommendation
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-readonly-list-journal-records
+    kind: simulate
+    action: aidevops:ListJournalRecords
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-readonly-get-account-usage
+    kind: simulate
+    action: aidevops:GetAccountUsage
+    resource: "*"
+    expect: allowed
+
+  # ---- read-only CANNOT write ----
+  - name: sim-readonly-send-message-denied
+    kind: simulate
+    action: aidevops:SendMessage
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-readonly-create-asset-denied
+    kind: simulate
+    action: aidevops:CreateAsset
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-readonly-create-chat-denied
+    kind: simulate
+    action: aidevops:CreateChat
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-readonly-update-backlog-task-denied
+    kind: simulate
+    action: aidevops:UpdateBacklogTask
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-readonly-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-readonly-delete-asset-denied
+    kind: simulate
+    action: aidevops:DeleteAsset
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-readonly-create-one-time-login-session-denied
+    kind: simulate
+    action: aidevops:CreateOneTimeLoginSession
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+
+  # ---- real: authoritative read allow-path ----
+  - name: real-readonly-list-agent-spaces
+    kind: real
+    service: devops-agent
+    operation: list_agent_spaces
+    params: {}
+    expect: success

@@ -1,0 +1,152 @@
+# The probe runner assumes/simulates exactly one role per scenario
+# (probes.schema.json has a single top-level `role_under_test`), so the live
+# matrix below targets the **operator** tier — the tier whose allow/deny
+# boundary is the interesting one. The admin and read-only tiers are covered
+# statically (see README → "Live validation coverage").
+role_under_test: operator_role_arn
+
+probes:
+  # ---- simulate: operator CAN do investigation / chat / backlog / asset work ----
+  - name: sim-operator-get-agentspace
+    kind: simulate
+    action: aidevops:GetAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-operator-create-chat
+    kind: simulate
+    action: aidevops:CreateChat
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-operator-send-message
+    kind: simulate
+    action: aidevops:SendMessage
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-operator-update-backlog-task
+    kind: simulate
+    action: aidevops:UpdateBacklogTask
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  - name: sim-operator-create-asset
+    kind: simulate
+    action: aidevops:CreateAsset
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  # Web App sign-in: the operator tier adds CreateOneTimeLoginSession on top of
+  # the documented operator action list.
+  - name: sim-operator-create-one-time-login-session
+    kind: simulate
+    action: aidevops:CreateOneTimeLoginSession
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: allowed
+  # ListAssetTypes is not Agent Space scoped, so it lives in the Resource "*" statement.
+  - name: sim-operator-list-asset-types
+    kind: simulate
+    action: aidevops:ListAssetTypes
+    resource: "*"
+    expect: allowed
+
+  # ---- simulate: operator CANNOT administer the Agent Space ----
+  - name: sim-operator-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-delete-agentspace-denied
+    kind: simulate
+    action: aidevops:DeleteAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-associate-service-denied
+    kind: simulate
+    action: aidevops:AssociateService
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-disassociate-service-denied
+    kind: simulate
+    action: aidevops:DisassociateService
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-update-agentspace-denied
+    kind: simulate
+    action: aidevops:UpdateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-enable-operator-app-denied
+    kind: simulate
+    action: aidevops:EnableOperatorApp
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-tag-resource-denied
+    kind: simulate
+    action: aidevops:TagResource
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+
+  # ---- simulate: operator CANNOT manage access tokens (MCP/A2A credentials) ----
+  - name: sim-operator-create-access-token-denied
+    kind: simulate
+    action: aidevops:CreateAccessToken
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-revoke-access-token-denied
+    kind: simulate
+    action: aidevops:RevokeAccessToken
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-rotate-access-token-denied
+    kind: simulate
+    action: aidevops:RotateAccessToken
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-operator-list-access-tokens-denied
+    kind: simulate
+    action: aidevops:ListAccessTokens
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+
+  # ---- simulate: console tiers carry no IAM / credential privileges ----
+  - name: sim-operator-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/iamscn-b3-operator"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  - name: sim-operator-create-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  - name: sim-operator-secretsmanager-denied
+    kind: simulate
+    action: secretsmanager:CreateSecret
+    resource: "*"
+    expect: implicitDeny
+
+  # The operator tier has no ListAgentSpaces grant — that is an administrative,
+  # account-scoped action and belongs to the admin tier only.
+  - name: sim-operator-list-agent-spaces-denied
+    kind: simulate
+    action: aidevops:ListAgentSpaces
+    resource: "*"
+    expect: implicitDeny
+
+  # ---- real: authoritative allow-path (assumes role_under_test) ----
+  # boto3/CLI service name is devops-agent; "aidevops" is only the IAM namespace.
+  - name: real-operator-list-asset-types
+    kind: real
+    service: devops-agent
+    operation: list_asset_types
+    params: {}
+    expect: success
+
+  # ---- other tiers ----
+  # probes.schema.json carries a single `role_under_test`, so one live run can
+  # exercise one tier only. The admin and read-only tiers are deployed by the
+  # same terraform harness (iamscn-b3-admin / iamscn-b3-readonly) and their
+  # expectations live in probes-admin.yaml / probes-readonly.yaml, ready to be
+  # wired up when the probes schema grows multi-role support. See the README
+  # section "Live validation coverage".
