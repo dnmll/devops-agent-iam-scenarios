@@ -55,6 +55,14 @@ resource "aws_iam_role_policy" "ci" {
         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/iamscn-*"
       },
       {
+        Sid    = "SimulatePolicyArtifacts"
+        Effect = "Allow"
+        # SimulateCustomPolicy evaluates caller-supplied policy documents (the
+        # scenario artifacts) — no resource scoping exists for it.
+        Action   = ["iam:SimulateCustomPolicy"]
+        Resource = "*"
+      },
+      {
         Sid      = "ListForSweeper"
         Effect   = "Allow"
         Action   = ["iam:ListRoles", "iam:ListPolicies", "iam:ListRoleTags"]

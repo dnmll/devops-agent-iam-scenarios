@@ -18,4 +18,6 @@ Also writes `checks-report.json` (gitignored).
 
 ## Live (`.github/workflows/live-validate.yml`) — CI only, human-gated
 
-deploy (terraform apply, `iamscn-*` named/tagged) → probe (`tools/probes/run_probes.py`: real STS/aidevops calls + `iam:SimulatePrincipalPolicy` for the deny matrix, retries for IAM propagation) → destroy always + tag-scoped sweep → PR comment. One run at a time (`concurrency: live-sandbox`). Agents never trigger or need this locally.
+deploy (terraform apply, `iamscn-*` named/tagged) → probe (`tools/probes/run_probes.py`: real STS/aidevops calls + `iam:SimulateCustomPolicy` for the deny matrix, retries for IAM propagation) → destroy always + tag-scoped sweep → PR comment. One run at a time (`concurrency: live-sandbox`). Agents never trigger or need this locally.
+
+CI role guardrails: `simulate` = artifact fidelity (`iam:SimulateCustomPolicy` on the scenario's `artifacts` with `substitutions` applied, no `iamscn-boundary` intersection, so a legitimate grant outside the boundary's union can't report a false `implicitDeny`/`explicitDeny`); `real` = sandbox-capped execution (the deployed, boundary-capped role, correct for calls with blast radius). `iamscn-ci-role` therefore needs `iam:SimulateCustomPolicy` (account-level, no resource ARN) alongside the `iamscn-*` scoped `iam:SimulatePrincipalPolicy`.
