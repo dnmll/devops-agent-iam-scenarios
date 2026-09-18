@@ -1,0 +1,123 @@
+# All probes are `simulate`: iam:SimulatePrincipalPolicy is the authoritative
+# way to test a role-creation policy without actually creating IAM principals in
+# the sandbox (and without needing aidevops calls — b1 has none).
+role_under_test: preprovisioner_role_arn
+
+probes:
+  # ---- simulate: positive matrix (role lifecycle on the DevOpsAgentRole- prefix) ----
+  - name: sim-create-role-devopsagent-prefix
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    expect: allowed
+  - name: sim-get-role-devopsagent-prefix
+    kind: simulate
+    action: iam:GetRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    expect: allowed
+  - name: sim-tag-role-devopsagent-prefix
+    kind: simulate
+    action: iam:TagRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    expect: allowed
+  - name: sim-update-assume-role-policy-devopsagent-prefix
+    kind: simulate
+    action: iam:UpdateAssumeRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    expect: allowed
+  - name: sim-delete-role-devopsagent-prefix
+    kind: simulate
+    action: iam:DeleteRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    expect: allowed
+  # The Resource Explorer SLR inline policy the CLI onboarding guide attaches.
+  - name: sim-put-role-policy-devopsagent-prefix
+    kind: simulate
+    action: iam:PutRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-WebappAdmin"
+    expect: allowed
+  # Attachment of the two documented DevOps Agent managed policies.
+  - name: sim-attach-agent-access-policy
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    context:
+      iam:PolicyARN: arn:aws:iam::aws:policy/AIDevOpsAgentAccessPolicy
+    expect: allowed
+  - name: sim-attach-operator-app-access-policy
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-WebappAdmin"
+    context:
+      iam:PolicyARN: arn:aws:iam::aws:policy/AIDevOpsOperatorAppAccessPolicy
+    expect: allowed
+
+  # ---- simulate: negative matrix (least-privilege proof) ----
+  # Role names outside the DevOps Agent prefix are out of scope entirely.
+  - name: sim-create-role-other-name-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/SomeOtherRole"
+    expect: implicitDeny
+  - name: sim-delete-role-other-name-denied
+    kind: simulate
+    action: iam:DeleteRole
+    resource: "arn:aws:iam::111122223333:role/SomeOtherRole"
+    expect: implicitDeny
+  - name: sim-update-assume-role-policy-other-name-denied
+    kind: simulate
+    action: iam:UpdateAssumeRolePolicy
+    resource: "arn:aws:iam::111122223333:role/SomeOtherRole"
+    expect: implicitDeny
+  # Privilege-escalation guard: attachment is pinned by iam:PolicyARN, so a
+  # DevOpsAgentRole-* role can never be given AdministratorAccess.
+  - name: sim-attach-administrator-access-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    context:
+      iam:PolicyARN: arn:aws:iam::aws:policy/AdministratorAccess
+    expect: implicitDeny
+  # Split duty: the pre-provisioner creates the roles, the installer passes them.
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  # No aidevops surface at all: Agent Space work is b2, console work is b3.
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-list-agent-spaces-denied
+    kind: simulate
+    action: aidevops:ListAgentSpaces
+    resource: "*"
+    expect: implicitDeny
+  # Adjacent IAM privileges the split-duty admin must not acquire.
+  - name: sim-create-user-denied
+    kind: simulate
+    action: iam:CreateUser
+    resource: "arn:aws:iam::111122223333:user/someone"
+    expect: implicitDeny
+  - name: sim-create-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  # Boundary tampering and credential access are never part of this persona.
+  - name: sim-put-role-permissions-boundary-denied
+    kind: simulate
+    action: iam:PutRolePermissionsBoundary
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-AgentSpace"
+    expect: implicitDeny
+  - name: sim-secretsmanager-denied
+    kind: simulate
+    action: secretsmanager:GetSecretValue
+    resource: "*"
+    expect: implicitDeny

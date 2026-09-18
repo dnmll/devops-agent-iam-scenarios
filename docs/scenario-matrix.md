@@ -16,7 +16,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 
 | Id | Title | Deliverable | Status |
 |---|---|---|---|
-| `b1-iam-preprovisioner` | IAM admin pre-provisioner (split duty) | Role/policy CRUD scoped to DevOps Agent role names | planned |
+| `b1-iam-preprovisioner` | IAM admin pre-provisioner (split duty) | Role/policy CRUD scoped to `DevOpsAgentRole-*`, attachment pinned by `iam:PolicyARN`; no PassRole, no aidevops | static |
 | `b2-installer` | Installer — create/configure an Agent Space | aidevops lifecycle + associations + Operator App + scoped PassRole + SLR creation | live |
 | `b3-webapp-tiers` | Web App / console user tiers | Admin / Operator / Read-only policies (+ `CreateOneTimeLoginSession` for Web App login) | static |
 | `b4-secrets-manager` | Third-party integration via Secrets Manager | secretsmanager Create/Put/List/Tag + secret-policy pattern | planned |

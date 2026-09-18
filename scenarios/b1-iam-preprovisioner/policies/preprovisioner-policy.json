@@ -1,0 +1,37 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ProvisionDevOpsAgentRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:GetRole",
+        "iam:TagRole",
+        "iam:UpdateAssumeRolePolicy",
+        "iam:DeleteRole"
+      ],
+      "Resource": "arn:aws:iam::111122223333:role/DevOpsAgentRole-*"
+    },
+    {
+      "Sid": "InlineResourceExplorerSlrPolicy",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePolicy",
+      "Resource": "arn:aws:iam::111122223333:role/DevOpsAgentRole-*"
+    },
+    {
+      "Sid": "AttachDevOpsAgentManagedPolicies",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "arn:aws:iam::111122223333:role/DevOpsAgentRole-*",
+      "Condition": {
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/AIDevOpsAgentAccessPolicy",
+            "arn:aws:iam::aws:policy/AIDevOpsOperatorAppAccessPolicy"
+          ]
+        }
+      }
+    }
+  ]
+}

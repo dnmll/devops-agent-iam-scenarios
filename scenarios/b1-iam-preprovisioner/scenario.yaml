@@ -1,0 +1,46 @@
+id: b1-iam-preprovisioner
+plane: B
+title: IAM admin pre-provisioner — split-duty DevOps Agent role creation
+description: >
+  Permissions the IAM administrator needs to pre-create the Plane-A AWS DevOps
+  Agent roles (Agent Space role, Operator Web App role, cross-account role) so
+  that the installer (b2) only ever needs iam:PassRole. Role lifecycle is scoped
+  to the DevOpsAgentRole-* name prefix and policy attachment is pinned to the two
+  documented AWS managed policies. Deliberately grants no iam:PassRole and no
+  aidevops actions — this is the other half of the split duty, not an installer.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-creating-an-agent-space.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/preprovisioner-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+  "DevOpsAgentRole-": "iamscn-b1-dar-"
+required_conditions:
+  # Attachment is pinned to the two documented DevOps Agent managed policies, so
+  # the pre-provisioner can never attach (for example) AdministratorAccess to a
+  # role it then hands to the installer.
+  - artifact: policies/preprovisioner-policy.json
+    action: iam:AttachRolePolicy
+    condition_key: iam:PolicyARN
+    expected: arn:aws:iam::aws:policy/AIDevOpsAgentAccessPolicy
+  - artifact: policies/preprovisioner-policy.json
+    action: iam:AttachRolePolicy
+    condition_key: iam:PolicyARN
+    expected: arn:aws:iam::aws:policy/AIDevOpsOperatorAppAccessPolicy
+forbidden_actions:
+  # Split duty: the pre-provisioner creates roles but never uses them. Passing a
+  # role to the service and every aidevops action belong to b2 / b3.
+  - iam:PassRole
+  - aidevops:*
+  - iam:CreateServiceLinkedRole
+  - iam:CreateUser
+  - iam:CreateAccessKey
+  - iam:PutRolePermissionsBoundary
+  - iam:DeleteRolePermissionsBoundary
+  - sts:AssumeRole
