@@ -11,10 +11,12 @@ terraform {
 provider "aws" {
   region = var.region
   default_tags {
+    # Must be static values: dynamic expressions (e.g. timestamp()) in
+    # default_tags break planning ("inconsistent final plan"). Resource age for
+    # the sweeper comes from CreateDate, not a tag.
     tags = {
       "iamscn:scenario" = "b2-installer"
       "iamscn:run-id"   = var.run_id
-      "iamscn:expiry"   = timeadd(timestamp(), "4h")
     }
   }
 }

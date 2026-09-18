@@ -28,7 +28,7 @@ Creates the GitHub OIDC provider, `iamscn-ci-role` (sub pinned to `environment:s
 - OIDC `sub` condition releases credentials only to approved `sandbox`-environment runs.
 - The CI role can create roles **only** with names `iamscn-*` **and only** with `iamscn-boundary` attached; it cannot modify itself or the boundary (explicit Deny).
 - The boundary caps every role under test — an over-broad candidate policy cannot exceed it.
-- Everything created is tagged `iamscn:scenario` / `iamscn:run-id` / `iamscn:expiry`; `destroy` runs `if: always()`, and the nightly `sweeper` deletes aged leftovers and **fails loudly** when it finds any.
+- Everything created is tagged `iamscn:scenario` / `iamscn:run-id`; `destroy` runs `if: always()`, and the nightly `sweeper` deletes leftovers older than the age threshold (judged by resource `CreateDate`) and **fails loudly** when it finds any.
 
 ## Persistent-by-design resources (sweeper allowlist)
 
