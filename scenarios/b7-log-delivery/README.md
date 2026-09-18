@@ -28,7 +28,9 @@ Attach **exactly one**. Replace `111122223333` with your account ID, `us-east-1`
 
 You can vend logs from an **Agent Space** (`arn:aws:aidevops:<region>:<account>:agentspace/<id>`) or from a **registered service** (`arn:aws:aidevops:<region>:<account>:service/<id>`). They are distinct resource types, so a wildcard on one does not cover the other: `agentspace/*` never matches a `service/...` ARN.
 
-A policy with only `agentspace/*` looks correct, passes review, and then fails the moment somebody enables logs on a registered service — with an access-denied on an action most people have never seen before. Both ARNs are listed in every artifact, and `expected/probes.yaml` asserts `allowed` on each separately so a future edit that drops one is caught. (This mirrors the two-ARN habit that the association actions and the `b5` KMS key policy also need — see `.claude/rules/policy-authoring.md`.)
+A policy with only `agentspace/*` looks correct, passes review, and then fails the moment somebody enables logs on a registered service — with an access-denied on an action most people have never seen before. Both ARNs are listed in every artifact. (This mirrors the two-ARN habit that the association actions and the `b5` KMS key policy also need — see `.claude/rules/policy-authoring.md`.)
+
+Both scopes are asserted by review rather than by a probe: `AllowVendedLogDeliveryForResource` is one of the two actions the IAM policy simulator cannot evaluate — see [Actions the IAM policy simulator cannot validate](#actions-the-iam-policy-simulator-cannot-validate).
 
 Note that the `Resource` here is the resource being *logged*, not a logs ARN. `aidevops:AllowVendedLogDeliveryForResource` is the source-side consent: without it, `logs:PutDeliverySource` fails even when every `logs:*` permission is in place.
 
@@ -140,14 +142,38 @@ All of these are in `scenario.yaml` `forbidden_actions`, so re-adding one fails 
 
 ## Live validation coverage
 
-All expectations are `kind: simulate` (`iam:SimulateCustomPolicy` against the artifact in isolation). [`expected/probes.yaml`](./expected/probes.yaml) is the **CloudWatch Logs** matrix (the console default): allows on both scope ARNs, allows across the whole delivery core, allows on the CWL destination additions, and denies on
+All expectations are `kind: simulate` (`iam:SimulateCustomPolicy` against the artifact in isolation). [`expected/probes.yaml`](./expected/probes.yaml) is the **CloudWatch Logs** matrix (the console default): allows across the delivery core, allows on the CWL destination additions, and denies on
 
 - log groups outside `/aws/vendedlogs/devops-agent/*`,
 - **the other two destinations** — `firehose:DescribeDeliveryStream` / `firehose:TagDeliveryStream`, `s3:GetBucketPolicy` / `s3:PutBucketPolicy` and the log-delivery SLR are all `implicitDeny` under the CloudWatch Logs artifact,
 - reading delivered logs (`logs:GetLogEvents`, `logs:FilterLogEvents`),
 - the adjacent `b1`/`b2` privileges (`aidevops:CreateAgentSpace`, `DeleteAgentSpace`, `RegisterService`, `iam:PassRole`).
 
-`probes.schema.json` carries a single `role_under_test`, so one live run exercises one destination. The S3 and Firehose matrices live in [`probes-s3.yaml`](./expected/probes-s3.yaml) and [`probes-firehose.yaml`](./expected/probes-firehose.yaml) — same shape, mirrored cross-target denies, plus the S3 other-bucket / no-object-access denies and the Firehose "only this one SLR, only this one stream" denies. Their roles (`iamscn-b7-s3`, `iamscn-b7-firehose`) are deployed by the same terraform harness and their expectations are ready to wire up when the probes schema grows multi-role support (same arrangement as [`b3`](../b3-webapp-tiers/README.md)).
+### Actions the IAM policy simulator cannot validate
+
+Two of the actions this scenario grants **cannot be checked with the IAM policy simulator**, so they have no probe:
+
+| Action | Where it's granted |
+|---|---|
+| `aidevops:AllowVendedLogDeliveryForResource` | `AllowVendedLogDeliveryForDevOpsAgentResources` — in all three artifacts, on both the `agentspace/*` and the `service/*` scope |
+| `logs:DeleteDeliverySource` | `ManageVendedLogDeliveryConfiguration` (via `logs:DeleteDelivery*`) — in all three artifacts |
+
+Both are missing from the simulator's action database. When `iam:SimulateCustomPolicy` is asked about an action it does not know, it does not report an error — it silently returns **`implicitDeny`**, even when the policy under test lists that exact action in an `Allow`. A live-validate run therefore showed these as failures against policies that grant them correctly.
+
+This was confirmed empirically rather than assumed:
+
+- **`logs:DeleteDeliveryDestination` simulates `allowed`** from the *same statement*, under the same `logs:DeleteDelivery*` wildcard and the same ARN scoping. Only the `DeleteDeliverySource` sibling comes back denied, which no policy-scoping mistake can produce.
+- Rewriting the policy to `Action: "*"` makes `SimulateCustomPolicy` **match both actions** and return `allowed`. A resource-scoping or condition-key defect would still deny under `"*"`; an unknown-action lookup stops failing because `"*"` needs no database entry to match.
+- A **deliberately fake action name** behaves identically (`implicitDeny`, no error), which is the signature being described.
+
+Practical consequences for anyone using these artifacts:
+
+- **Do not use the IAM policy simulator (or the console's "Simulate policy") to verify vended-log-delivery permissions.** A denied result for these two actions is not evidence of a policy defect. Verify with a real API call, or by reading the policy.
+- If a *real* `logs:PutDeliverySource` call fails with access denied, the cause is a genuinely missing `aidevops:AllowVendedLogDeliveryForResource` grant (or the wrong one of the two resource scopes — see [above](#why-allowvendedlogdeliveryforresource-needs-two-resource-arns)), not a simulator artifact. The two failure modes look the same from the simulator and completely different from a real call.
+
+The three affected probes were **removed from `probes.yaml`; the policy artifacts were not changed**, because the grants are correct — weakening or broadening a policy to satisfy a simulator gap would be the wrong fix. This is the same pattern as `b3`, whose real probes are gated on account onboarding: where the harness genuinely cannot assert something, the gap is documented here instead of being papered over with a passing-but-meaningless expectation. The rest of the `logs:DeleteDelivery*` wildcard and the ARN scoping around it are still covered by the `DeleteDelivery` and `DeleteDeliveryDestination` probes.
+
+`probes.schema.json` carries a single `role_under_test`, so one live run exercises one destination. The S3 and Firehose matrices live in [`probes-s3.yaml`](./expected/probes-s3.yaml) and [`probes-firehose.yaml`](./expected/probes-firehose.yaml) — same shape, mirrored cross-target denies, plus the S3 other-bucket / no-object-access denies and the Firehose "only this one SLR, only this one stream" denies. Their roles (`iamscn-b7-s3`, `iamscn-b7-firehose`) are deployed by the same terraform harness and their expectations are ready to wire up when the probes schema grows multi-role support (same arrangement as [`b3`](../b3-webapp-tiers/README.md)). Those two files are not read by any live run today, so they still carry the three simulator-blind expectations described above; they need the same removal at the point they are wired up.
 
 There are no `real` probes on purpose. A real `logs:PutDeliverySource` for a DevOps Agent resource needs an Agent Space in an account that has been onboarded to DevOps Agent (the sandbox has not — the same limitation documented in `b3` and `b4`), and a real `logs:PutResourcePolicy` would mutate the sandbox account's single account-wide CloudWatch Logs resource-policy document, which the destroy step cannot safely restore.
 

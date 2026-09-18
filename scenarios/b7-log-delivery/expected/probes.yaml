@@ -11,21 +11,17 @@
 role_under_test: cloudwatch_role_arn
 
 probes:
-  # ---- simulate: the DevOps Agent side — BOTH scope ARNs ----
-  # AllowVendedLogDeliveryForResource is authorized against the resource whose
-  # logs are being vended, and that can be either an Agent Space or a registered
-  # service. A single-scope statement silently fails on the other one.
-  - name: sim-allow-vended-log-delivery-agentspace
-    kind: simulate
-    action: aidevops:AllowVendedLogDeliveryForResource
-    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
-    expect: allowed
-  - name: sim-allow-vended-log-delivery-service
-    kind: simulate
-    action: aidevops:AllowVendedLogDeliveryForResource
-    resource: "arn:aws:aidevops:us-east-1:111122223333:service/probe"
-    expect: allowed
-
+  # ---- not probeable: actions missing from the IAM policy simulator ----
+  # `aidevops:AllowVendedLogDeliveryForResource` (both the agentspace/* and the
+  # service/* scope) and `logs:DeleteDeliverySource` are absent from the policy
+  # simulator's action database, so SimulateCustomPolicy returns implicitDeny for
+  # them even when the artifact lists the action explicitly — the same result a
+  # made-up action name produces. Their grants ARE correct (the identical
+  # statement's `logs:DeleteDeliveryDestination` simulates `allowed`, and both
+  # actions match when the policy is rewritten to `Action: "*"`), so the probes
+  # were removed rather than the permissions weakened. See README → "Actions the
+  # IAM policy simulator cannot validate".
+  #
   # ---- simulate: the common delivery core (CloudWatch Logs delivery V2 APIs) ----
   - name: sim-put-delivery-source
     kind: simulate
@@ -67,11 +63,8 @@ probes:
     action: logs:DeleteDelivery
     resource: "arn:aws:logs:us-east-1:111122223333:delivery:probe"
     expect: allowed
-  - name: sim-delete-delivery-source
-    kind: simulate
-    action: logs:DeleteDeliverySource
-    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
-    expect: allowed
+  # `logs:DeleteDeliverySource` is granted by the same statement but is not in the
+  # simulator's action database — see the note at the top of this file.
   - name: sim-delete-delivery-destination
     kind: simulate
     action: logs:DeleteDeliveryDestination
