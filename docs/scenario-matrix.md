@@ -9,7 +9,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 | `a1-agentspace-role` | Agent Space role (primary account) | Trust policy (`aidevops.amazonaws.com` + SourceAccount/SourceArn) + `AIDevOpsAgentAccessPolicy` + Resource Explorer SLR inline; restricted-template variant | static |
 | `a2-secondary-account-role` | Secondary account role (cross-account) | Same permission shape as a1, trust scoped to the Agent Space in the monitoring account | planned |
 | `a3-elevated-directed-actions` | Elevated role for directed actions | Pattern + worked example for operator-approved remediation writes | planned |
-| `a4-operator-webapp-role` | Operator Web App role | `AIDevOpsOperatorAppAccessPolicy`-derived, session-tag (`AgentSpaceId`) scoped | planned |
+| `a4-operator-webapp-role` | Operator Web App role | `AIDevOpsOperatorAppAccessPolicy`-derived, session-tag (`AgentSpaceId`) scoped: `agentspace/${aws:PrincipalTag/AgentSpaceId}` + `aws:ResourceAccount=${aws:PrincipalAccount}` on every statement; trust policy adds `sts:TagSession`. Allow half is static-only — policy variables don't resolve under `iam:SimulateCustomPolicy` | static |
 | `a5-service-linked-roles` | Service-linked roles | `AWSServiceRoleForAIDevOps` (vended metrics) + `AWSServiceRoleForLogDelivery` (Firehose logs) creation guidance | planned |
 
 ## Plane B — human / CI identities

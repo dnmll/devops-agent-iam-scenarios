@@ -1,0 +1,150 @@
+id: a4-operator-webapp-role
+plane: A
+title: Operator Web App role — AIDevOpsOperatorAppAccessPolicy, session-tag scoped
+description: >
+  The role behind the AWS DevOps Agent Operator Web App. Two artifacts: the
+  trust policy that lets aidevops.amazonaws.com assume the role *and tag the
+  session* (sts:AssumeRole + sts:TagSession, with the same confused-deputy pair
+  as a1 — aws:SourceAccount + ArnLike aws:SourceArn), and
+  policies/operator-app-policy.json, the customer-managed equivalent of the AWS
+  managed policy AIDevOpsOperatorAppAccessPolicy. Its whole least-privilege
+  story is a policy variable: the aidevops statement is scoped to
+  arn:aws:aidevops:*:*:agentspace/${aws:PrincipalTag/AgentSpaceId}, so one role
+  serves every Agent Space and each Web App session only reaches the Agent
+  Space its AgentSpaceId session tag names. Every statement additionally carries
+  aws:ResourceAccount = ${aws:PrincipalAccount}, which keeps the account-level
+  support / secretsmanager / transcribe grants inside the caller's own account.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
+  - https://docs.aws.amazon.com/IAM/latest/UserGuide/id_session-tags.html
+artifacts:
+  - policies/trust-policy.json
+  - policies/operator-app-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  # Note what is NOT listed here: the policy variables. Substitution is literal
+  # string replacement (tools/probes/run_probes.py `substitute`, and terraform's
+  # `replace()` in terraform/main.tf), and neither "111122223333" nor
+  # "us-east-1" occurs inside "${aws:PrincipalTag/AgentSpaceId}" or
+  # "${aws:PrincipalAccount}", so both survive the pass byte-for-byte. The
+  # aidevops Resource deliberately uses the documented wildcard region/account
+  # (arn:aws:aidevops:*:*:agentspace/...), so there is nothing to substitute in
+  # operator-app-policy.json at all — the whole substitution map exists for the
+  # trust policy. See README -> "Policy variables and the substitution pass".
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+required_conditions:
+  # ---- the trust policy: confused-deputy pair, asserted on BOTH sts actions ----
+  # aidevops.amazonaws.com is the same principal for every AWS customer, so
+  # without aws:SourceAccount anyone's Agent Space could make the service assume
+  # this role, and without aws:SourceArn any other DevOps Agent resource type in
+  # your own account could. sts:TagSession is asserted separately because the
+  # session tag is what scopes the permission policy: an unconditioned
+  # TagSession grant would let the service attach ANY AgentSpaceId tag on behalf
+  # of any account.
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceAccount
+    expected: "111122223333"
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceArn
+    expected: arn:aws:aidevops:us-east-1:111122223333:agentspace/*
+  - artifact: policies/trust-policy.json
+    action: sts:TagSession
+    condition_key: aws:SourceAccount
+    expected: "111122223333"
+  - artifact: policies/trust-policy.json
+    action: sts:TagSession
+    condition_key: aws:SourceArn
+    expected: arn:aws:aidevops:us-east-1:111122223333:agentspace/*
+  # ---- aws:ResourceAccount on every statement of the permission policy ----
+  # This is the assertion the issue calls for, and it is the only static guard on
+  # the four Resource "*" statements: support / secretsmanager / transcribe /
+  # GetAccountUsage cannot be resource-scoped (see parliament_suppressions), so
+  # aws:ResourceAccount = ${aws:PrincipalAccount} is what keeps them inside the
+  # caller's own account. One assertion per statement, each naming an action that
+  # appears in exactly that statement, so dropping the condition anywhere fails
+  # `python3 -m tools.checks`. Note the `expected` values are the policy variable
+  # verbatim — that is also a regression guard on the escaping: any pass that
+  # expanded or mangled "${aws:PrincipalAccount}" would fail these four.
+  - artifact: policies/operator-app-policy.json
+    action: aidevops:GetAgentSpace
+    condition_key: aws:ResourceAccount
+    expected: ${aws:PrincipalAccount}
+  - artifact: policies/operator-app-policy.json
+    action: aidevops:GetAccountUsage
+    condition_key: aws:ResourceAccount
+    expected: ${aws:PrincipalAccount}
+  - artifact: policies/operator-app-policy.json
+    action: support:DescribeCases
+    condition_key: aws:ResourceAccount
+    expected: ${aws:PrincipalAccount}
+  - artifact: policies/operator-app-policy.json
+    action: secretsmanager:CreateSecret
+    condition_key: aws:ResourceAccount
+    expected: ${aws:PrincipalAccount}
+  - artifact: policies/operator-app-policy.json
+    action: transcribe:StartStreamTranscriptionWebSocket
+    condition_key: aws:ResourceAccount
+    expected: ${aws:PrincipalAccount}
+forbidden_actions:
+  # The Web App role is an end-user surface wearing a session tag: it authors and
+  # reads inside one Agent Space and holds no IAM, no Agent Space lifecycle and
+  # no credential reads. Role CRUD is b1, Agent Space + Operator App
+  # configuration is b2, human console tiers (including the one-time login
+  # session that *starts* a Web App session) are b3, secret values are read by
+  # the service under AIDevOpsAgentAccessPolicy — never here.
+  - iam:PassRole
+  - iam:CreateRole
+  - iam:DeleteRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:UpdateAssumeRolePolicy
+  - iam:CreateServiceLinkedRole
+  - iam:TagRole
+  - aidevops:CreateAgentSpace
+  - aidevops:UpdateAgentSpace
+  - aidevops:DeleteAgentSpace
+  - aidevops:AssociateService
+  - aidevops:DisassociateService
+  - aidevops:RegisterService
+  - aidevops:EnableOperatorApp
+  - aidevops:DisableOperatorApp
+  - aidevops:UpdateOperatorAppIdpConfig
+  - aidevops:CreateOneTimeLoginSession
+  - aidevops:InvokeAgent
+  - secretsmanager:GetSecretValue
+  - secretsmanager:PutSecretValue
+  - secretsmanager:DeleteSecret
+  - support:CreateCase
+  - kms:Decrypt
+  - kms:PutKeyPolicy
+parliament_suppressions:
+  - issue: MALFORMED
+    reason: >
+      policies/trust-policy.json is a role *trust* (assume-role) policy, not an
+      identity policy: it carries a Principal block and no Resource, which is
+      the only shape sts:AssumeRole / sts:TagSession trust documents take.
+      Parliament lints every document as an identity policy, so it reports
+      "Statement contains neither Resource nor NotResource". Scoping here is
+      Principal + aws:SourceAccount + aws:SourceArn, all asserted above in
+      required_conditions.
+  - issue: RESOURCE_STAR
+    reason: >
+      Parliament reports this for secretsmanager:CreateSecret (the only one of
+      the four Resource "*" statements whose prefix it knows well enough to
+      flag). Four statements use Resource "*" because the actions take no ARN
+      that IAM can match: aidevops:GetAccountUsage is account-level;
+      support:DescribeCases / DescribeServices / InitiateChatForCase /
+      DescribeSupportLevel have no resource types at all (the AWS Support API is
+      account-scoped); secretsmanager:ListSecrets is an enumeration API and
+      secretsmanager:CreateSecret names a secret that does not exist yet (same
+      reasoning as b4); transcribe:StartStreamTranscriptionWebSocket opens a
+      stream, not a resource. This matches the AWS managed policy
+      AIDevOpsOperatorAppAccessPolicy verbatim, and every one of the four carries
+      aws:ResourceAccount = ${aws:PrincipalAccount} (asserted in
+      required_conditions) to keep them inside the caller's own account.
