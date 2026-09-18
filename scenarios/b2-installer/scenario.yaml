@@ -6,7 +6,7 @@ description: >
   Agent Space, manage its account/service associations, enable the Operator Web
   App, and pass pre-created DevOps Agent roles to the service. Assumes the
   Plane-A roles already exist (see b1 pre-provisioner for the auto-create variant).
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-creating-an-agent-space.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html

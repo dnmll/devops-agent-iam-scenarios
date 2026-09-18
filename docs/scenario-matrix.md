@@ -17,7 +17,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 | Id | Title | Deliverable | Status |
 |---|---|---|---|
 | `b1-iam-preprovisioner` | IAM admin pre-provisioner (split duty) | Role/policy CRUD scoped to DevOps Agent role names | planned |
-| `b2-installer` | Installer — create/configure an Agent Space | aidevops lifecycle + associations + Operator App + scoped PassRole + SLR creation | static |
+| `b2-installer` | Installer — create/configure an Agent Space | aidevops lifecycle + associations + Operator App + scoped PassRole + SLR creation | live |
 | `b3-webapp-tiers` | Web App / console user tiers | Admin / Operator / Read-only policies | planned |
 | `b4-secrets-manager` | Third-party integration via Secrets Manager | secretsmanager Create/Put/List/Tag + secret-policy pattern | planned |
 | `b5-customer-kms-key` | Customer-managed KMS key | Caller policy (`kms:ViaService`) + key policy (service principal, SourceArn + EncryptionContext, agentspace/* and service/* statements) | planned |
