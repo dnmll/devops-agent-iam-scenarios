@@ -3,30 +3,38 @@ plane: B
 title: Customer-managed KMS key — caller identity policy + KMS key policy
 description: >
   The two-sided grant AWS DevOps Agent requires when an Agent Space or a
-  registered service is encrypted with a customer-managed KMS key. The caller
-  identity policy gives the human (or pipeline identity) the five documented
-  crypto actions on one CMK, fenced to the DevOps Agent path with
-  kms:ViaService, plus the unconditioned kms:ListKeys/kms:DescribeKey the
-  console key picker needs. The key resource policy adds the other side: the
-  caller statement, the aidevops.amazonaws.com service-principal DescribeKey
-  statement for configuration-time validation, and two asynchronous crypto
-  statements — one per resource type (agentspace/*, service/*) — each gated on
-  aws:SourceArn and the aws-crypto-ec:aws:aidevops:arn encryption context.
+  registered service is encrypted with a customer-managed KMS key. Two caller
+  identity policies — the installer's (the five documented crypto actions on one
+  CMK, fenced to the DevOps Agent path with kms:ViaService, plus the
+  unconditioned kms:ListKeys/kms:DescribeKey the console key picker needs) and
+  the Operator Web App role's (the same fenced crypto statement, no key picker),
+  because Web App requests are synchronous and decrypt under the role's own
+  credentials. The key resource policy adds the other side: the caller statement
+  naming every synchronous caller, the aidevops.amazonaws.com service-principal
+  DescribeKey statement for configuration-time validation, and two asynchronous
+  crypto statements — one per resource type (agentspace/*, service/*) — each
+  gated on aws:SourceArn and the aws-crypto-ec:aws:aidevops:arn encryption
+  context.
 status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-encryption-at-rest-for-devops-agent.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
 artifacts:
   - policies/caller-policy.json
+  - policies/webapp-caller-policy.json
   - policies/key-policy.json
 terraform_dir: terraform
 probes: expected/probes.yaml
 substitutions:
   "111122223333": "${account_id}"
   "us-east-1": "${region}"
-  # The key policy's example caller principal maps onto the harness role name;
-  # the harness keeps every name it touches in the iamscn- namespace.
+  # The key policy's example caller principals map onto harness role names; the
+  # harness keeps every name it touches in the iamscn- namespace. Neither
+  # mapping is load-bearing today — the harness deploys no KMS key, so
+  # policies/key-policy.json is never applied (see README -> "Live validation
+  # coverage") — but they keep the placeholder→sandbox mapping complete.
   "DevOpsAgentUserRole": "iamscn-b5-caller"
+  "DevOpsAgentRole-operator-app": "iamscn-b5-webapp-caller"
 required_conditions:
   # kms:ViaService is the whole least-privilege story of the caller policy: the
   # CMK grant must be worthless outside the DevOps Agent path. Asserted on each
@@ -47,6 +55,31 @@ required_conditions:
     condition_key: kms:ViaService
     expected: aidevops.us-east-1.amazonaws.com
   - artifact: policies/caller-policy.json
+    action: kms:ReEncrypt*
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  # ---- the Operator Web App role's caller half ----
+  # Same fence, same reasoning, second caller identity (see README -> "Who calls
+  # the key"). This artifact has no console-key-picker statement — the Web App
+  # role never picks a key in the console — so kms:DescribeKey can be asserted
+  # here too: every Allow statement that grants it carries kms:ViaService.
+  - artifact: policies/webapp-caller-policy.json
+    action: kms:DescribeKey
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/webapp-caller-policy.json
+    action: kms:GenerateDataKey*
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/webapp-caller-policy.json
+    action: kms:Decrypt
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/webapp-caller-policy.json
+    action: kms:Encrypt
+    condition_key: kms:ViaService
+    expected: aidevops.us-east-1.amazonaws.com
+  - artifact: policies/webapp-caller-policy.json
     action: kms:ReEncrypt*
     condition_key: kms:ViaService
     expected: aidevops.us-east-1.amazonaws.com

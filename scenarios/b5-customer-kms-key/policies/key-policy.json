@@ -5,7 +5,10 @@
       "Sid": "AllowCallerAccessViaService",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::111122223333:role/DevOpsAgentUserRole"
+        "AWS": [
+          "arn:aws:iam::111122223333:role/DevOpsAgentUserRole",
+          "arn:aws:iam::111122223333:role/DevOpsAgentRole-operator-app"
+        ]
       },
       "Action": [
         "kms:DescribeKey",
