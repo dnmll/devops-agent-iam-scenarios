@@ -46,9 +46,8 @@ locals {
 
   # A customer attaches both artifacts together, so the single probe-anchor role
   # carries both: their statements concatenated verbatim into one role policy.
-  # The simulate probes evaluate the same union (run_probes.simulated_artifacts
-  # returns all artifacts here — the tier-matching path needs a role_under_test
-  # naming one artifact, and `slr_role_arn` deliberately names neither).
+  # The simulate probes evaluate the same union: expected/probes.yaml declares no
+  # `simulate_artifacts`, so the runner defaults to all of scenario.yaml artifacts.
   slr_policy_json = jsonencode({
     Version   = "2012-10-17"
     Statement = flatten([for doc in local.artifact_json : jsondecode(doc)["Statement"]])

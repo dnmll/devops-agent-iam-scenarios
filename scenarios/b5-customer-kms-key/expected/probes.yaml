@@ -1,10 +1,11 @@
 # Only the caller identity policy is simulatable: policies/key-policy.json is a
 # KMS *resource* policy (it carries Principal blocks), and
-# iam:SimulateCustomPolicy only accepts identity policies. The probe runner picks
-# the artifact whose filename matches the tier in `role_under_test`
-# (`caller_role_arn` -> caller-policy.json), so the key policy is excluded here
-# and validated statically instead (see README -> "Live validation coverage").
+# iam:SimulateCustomPolicy only accepts identity policies. `simulate_artifacts`
+# below therefore names the caller policy alone; the key policy is validated
+# statically instead (see README -> "Live validation coverage").
 role_under_test: caller_role_arn
+simulate_artifacts:
+  - policies/caller-policy.json
 
 probes:
   # ---- simulate: the documented caller grant, through the DevOps Agent path ----

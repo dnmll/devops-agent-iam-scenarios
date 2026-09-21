@@ -94,7 +94,7 @@ Key administration belongs to the key owner's existing `AllowKeyAdministration`-
 
 ## Live validation coverage
 
-All expectations in [`expected/probes.yaml`](./expected/probes.yaml) are `kind: simulate` (`iam:SimulateCustomPolicy`) against **`policies/caller-policy.json` only**: allows for the five crypto actions with the `kms:ViaService` context, allows for the console picker, denies without the context / via another service / in another Region / on another key, denies on all key administration, and denies on the adjacent `b2` and `b4` privileges. The probe runner selects the artifact matching the tier in `role_under_test` (`caller_role_arn` → `caller-policy.json`).
+All expectations in [`expected/probes.yaml`](./expected/probes.yaml) are `kind: simulate` (`iam:SimulateCustomPolicy`) against **`policies/caller-policy.json` only**: allows for the five crypto actions with the `kms:ViaService` context, allows for the console picker, denies without the context / via another service / in another Region / on another key, denies on all key administration, and denies on the adjacent `b2` and `b4` privileges. `probes.yaml` names that one artifact in `simulate_artifacts:`, so the KMS key policy stays out of `PolicyInputList`.
 
 **`policies/key-policy.json` is validated statically only in this milestone, and that is a deliberate scope decision:**
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import hcl2
 import jsonschema
 import yaml
 
+from ..artifacts import ArtifactRef, ArtifactRefError, resolve_artifact_ref
 from . import ALWAYS_FORBIDDEN, MATRIX_DOC, REPO_ROOT, Finding, Scenario, load_schema
 
 # Parliament doesn't know the aidevops service yet; our manifest-driven checks
@@ -27,6 +27,56 @@ def _actions(stmt: dict) -> list[str]:
     return actions if isinstance(actions, list) else [actions]
 
 
+def _check_artifact_refs(s: Scenario, refs: list[str], where: str) -> list[Finding]:
+    """Validate a list of artifact references (scenario.yaml `artifacts:` or a
+    probes file's `simulate_artifacts:`).
+
+    Own-scenario references only have to exist. A cross-scenario reference also
+    has to name a real scenario that is `status: live` — a composite may only
+    build on a deliverable that has actually passed a live-validate run, or the
+    composite would inherit an unvalidated claim.
+    """
+    f: list[Finding] = []
+    for raw in refs:
+        try:
+            ref = resolve_artifact_ref(raw, s.path, s.scenarios_dir)
+        except ArtifactRefError as e:
+            f.append(Finding(s.id, "check_manifest", f"{where}: {e}"))
+            continue
+        if ref.is_cross_scenario:
+            f.extend(_check_cross_scenario_ref(s, ref, where))
+        elif not ref.path.is_file():
+            f.append(Finding(s.id, "check_manifest", f"{where}: artifact missing: {raw}"))
+    return f
+
+
+def _check_cross_scenario_ref(s: Scenario, ref: ArtifactRef, where: str) -> list[Finding]:
+    f: list[Finding] = []
+    if not ref.owner_dir.is_dir():
+        return [Finding(s.id, "check_manifest",
+                        f"{where}: '{ref.ref}' references unknown scenario '{ref.scenario_id}'")]
+    other_manifest_path = ref.owner_dir / "scenario.yaml"
+    if not other_manifest_path.is_file():
+        return [Finding(s.id, "check_manifest",
+                        f"{where}: '{ref.ref}' references '{ref.scenario_id}', "
+                        "which has no scenario.yaml")]
+    other = yaml.safe_load(other_manifest_path.read_text()) or {}
+    other_status = other.get("status", "planned")
+    if other_status != "live":
+        f.append(Finding(s.id, "check_manifest",
+                         f"{where}: '{ref.ref}' references scenario '{ref.scenario_id}' with "
+                         f"status={other_status} — only a live scenario may be referenced"))
+    if ref.ref not in [f"../{ref.scenario_id}/{a}" for a in other.get("artifacts", [])]:
+        # Not fatal on its own, but a reference to a file the owner does not
+        # itself declare is a copy by another name: nothing keeps it in sync.
+        f.append(Finding(s.id, "check_manifest",
+                         f"{where}: '{ref.ref}' is not declared in "
+                         f"{ref.scenario_id}/scenario.yaml artifacts"))
+    if not ref.path.is_file():
+        f.append(Finding(s.id, "check_manifest", f"{where}: artifact missing: {ref.ref}"))
+    return f
+
+
 def check_manifest(s: Scenario) -> list[Finding]:
     f: list[Finding] = []
     if not (s.path / "scenario.yaml").is_file():
@@ -37,9 +87,7 @@ def check_manifest(s: Scenario) -> list[Finding]:
         return [Finding(s.id, "check_manifest", f"scenario.yaml schema: {e.message}")]
     if s.manifest["id"] != s.path.name:
         f.append(Finding(s.id, "check_manifest", f"id '{s.manifest['id']}' != directory '{s.path.name}'"))
-    for a in s.artifact_paths():
-        if not a.is_file():
-            f.append(Finding(s.id, "check_manifest", f"artifact missing: {a.relative_to(s.path)}"))
+    f.extend(_check_artifact_refs(s, s.manifest.get("artifacts", []), "artifacts"))
     status = s.manifest.get("status", "planned")
     if status in ("static", "live"):
         tf_dir = s.path / s.manifest.get("terraform_dir", "terraform")
@@ -53,12 +101,16 @@ def check_manifest(s: Scenario) -> list[Finding]:
             if not probes_path.is_file():
                 f.append(Finding(s.id, "check_manifest", f"probes file missing: {probes_rel}"))
             else:
+                probes_doc = yaml.safe_load(probes_path.read_text())
                 try:
-                    jsonschema.validate(
-                        yaml.safe_load(probes_path.read_text()), load_schema("probes.schema.json")
-                    )
+                    jsonschema.validate(probes_doc, load_schema("probes.schema.json"))
                 except jsonschema.ValidationError as e:
                     f.append(Finding(s.id, "check_manifest", f"probes schema: {e.message}"))
+                else:
+                    f.extend(_check_artifact_refs(
+                        s, probes_doc.get("simulate_artifacts", []),
+                        f"{probes_rel} simulate_artifacts",
+                    ))
     if MATRIX_DOC.is_file():
         if f"`{s.id}`" not in MATRIX_DOC.read_text():
             f.append(Finding(s.id, "check_manifest", f"no row for `{s.id}` in docs/scenario-matrix.md"))
@@ -69,8 +121,9 @@ def check_manifest(s: Scenario) -> list[Finding]:
 
 def check_policy_json(s: Scenario) -> list[Finding]:
     f: list[Finding] = []
-    for path in s.artifact_paths():
-        rel = path.relative_to(s.path)
+    refs, _ = s.artifact_refs()  # unresolvable refs are check_manifest findings
+    for artifact_ref in refs:
+        path, rel = artifact_ref.path, artifact_ref.ref
         if not path.is_file():
             continue  # reported by check_manifest
         try:
@@ -96,8 +149,9 @@ def check_policy_json(s: Scenario) -> list[Finding]:
 
 def check_required_conditions(s: Scenario) -> list[Finding]:
     f: list[Finding] = []
-    policies = s.load_policies()
-    by_rel = {str(p.relative_to(s.path)): pol for p, pol in policies.items()}
+    # Keyed by the artifact reference exactly as scenario.yaml writes it, so a
+    # required_conditions rule can name a cross-scenario artifact too.
+    by_rel = s.load_policies()
 
     for rule in s.manifest.get("required_conditions", []):
         pol = by_rel.get(rule["artifact"])
@@ -141,9 +195,12 @@ def check_parliament(s: Scenario) -> list[Finding]:
 
     f: list[Finding] = []
     suppressions = {sup["issue"]: sup["reason"] for sup in s.manifest.get("parliament_suppressions", [])}
-    for path, _ in s.load_policies().items():
-        rel = path.relative_to(s.path)
-        analyzed = parliament.analyze_policy_string(path.read_text())
+    refs, _ = s.artifact_refs()
+    for artifact_ref in refs:
+        if not artifact_ref.path.is_file():
+            continue  # reported by check_manifest
+        rel = artifact_ref.ref
+        analyzed = parliament.analyze_policy_string(artifact_ref.path.read_text())
         for finding in analyzed.findings:
             issue = finding.issue
             detail = str(finding.detail)

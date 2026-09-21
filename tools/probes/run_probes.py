@@ -7,9 +7,10 @@ Usage:
 
 Reads scenarios/<id>/expected/probes.yaml, assumes the role named by
 `role_under_test` (resolved from terraform outputs), then runs:
-  - simulate probes: iam:SimulateCustomPolicy against the scenario's policy
-    ARTIFACT(s) (run with the CI role's credentials — authoritative for the
-    deny matrix)
+  - simulate probes: iam:SimulateCustomPolicy against the policy ARTIFACT(s) the
+    probes file declares in `simulate_artifacts:` (default: all of scenario.yaml
+    `artifacts`) — run with the CI role's credentials, authoritative for the
+    deny matrix
   - real probes: boto3 calls with the assumed role's credentials
 Retries AccessDenied flapping for up to ~3 minutes (IAM eventual consistency).
 
@@ -40,6 +41,9 @@ from pathlib import Path
 import boto3
 import botocore.exceptions
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from tools.artifacts import ArtifactRefError, resolve_artifact_ref  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RETRY_SECONDS = 180
@@ -117,24 +121,24 @@ def substitute(value, subs: dict[str, str]):
 
 
 def simulated_artifacts(manifest: dict, probes_doc: dict) -> list[str]:
-    """Which of the scenario's artifacts the simulate probes evaluate against.
+    """Which artifacts the simulate probes evaluate against — declared, never inferred.
 
-    A customer attaches a scenario's policies together, so the default is *all*
-    of `artifacts`. Scenarios that ship one independent policy per identity tier
-    (b3: admin / operator / read-only) are the exception: only one tier is
-    deployed as `role_under_test`, and simulating the union would grant the other
-    tiers' actions and turn every deny expectation into a false pass. When an
-    artifact filename matches the tier named by `role_under_test`
-    (`operator_role_arn` → `operator-policy.json`), that artifact alone is used.
+    A probes file states its own PolicyInputList in `simulate_artifacts:`. That is
+    how a probes file targeting one identity tier of a multi-tier scenario (b3:
+    admin / operator / read-only) or excluding a non-simulatable trust / resource
+    policy (a1-a4's trust policies, b5's KMS key policy) says so: simulating the
+    union of independent tiers would grant the other tiers' actions and turn every
+    deny expectation into a false pass.
+
+    Absent `simulate_artifacts`, the default is *all* of the scenario's
+    `artifacts` — a customer attaches a scenario's policies together, and a
+    composite scenario's grants are spread across them, so narrowing the set by
+    guessing would report real grants as false implicitDenies.
     """
-    artifacts = list(manifest.get("artifacts", []))
-    if len(artifacts) < 2:
-        return artifacts
-    tier = re.sub(r"_?role(_arn)?$", "", probes_doc.get("role_under_test", "")).strip("_")
-    if not tier:
-        return artifacts
-    matched = [a for a in artifacts if tier in Path(a).stem.replace("_", "-").split("-")]
-    return matched or artifacts
+    declared = probes_doc.get("simulate_artifacts")
+    if declared:
+        return list(declared)
+    return list(manifest.get("artifacts", []))
 
 
 def load_policy_inputs(scenario: str, artifacts: list[str], subs: dict[str, str]) -> list[str]:
@@ -144,13 +148,22 @@ def load_policy_inputs(scenario: str, artifacts: list[str], subs: dict[str, str]
     (placeholder account id / region / role-name prefix) is the same one
     terraform and the probe bodies use, so simulated ARNs line up with the
     sandbox-real resources the probes name.
+
+    References are resolved relative to the scenario directory and may point at
+    another scenario's artifact (`../b2-installer/policies/installer-policy.json`);
+    `check_manifest` has already asserted the referenced scenario is `status:
+    live` and declares the artifact, so a bad reference is a static failure, not
+    a surprise mid-run.
     """
     sdir = REPO_ROOT / "scenarios" / scenario
     inputs = []
     for artifact in artifacts:
-        path = sdir / artifact
+        try:
+            path = resolve_artifact_ref(artifact, sdir).path
+        except ArtifactRefError as e:
+            raise ProbeConfigError(f"artifact reference '{artifact}': {e}") from None
         if not path.is_file():
-            raise ProbeConfigError(f"scenario.yaml artifact '{artifact}' not found at {path}")
+            raise ProbeConfigError(f"artifact '{artifact}' not found at {path}")
         # Re-serialize compactly: PolicyInputList entries are size-capped and the
         # docs-style artifacts are heavily commented-out-by-formatting whitespace.
         inputs.append(json.dumps(json.loads(substitute(path.read_text(), subs))))
