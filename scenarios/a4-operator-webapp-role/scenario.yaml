@@ -18,6 +18,17 @@ status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
+  # The Web App role is "Grants users access to AWS DevOps Agent investigation
+  # data and findings in the web app" (security page, IAM roles), and the three
+  # authentication methods it can front are documented across the security
+  # overview, the web-app overview and the two setup guides.
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/about-aws-devops-agent-what-is-a-devops-agent-web-app.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-setting-up-iam-identity-center-authentication.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-setting-up-external-identity-provider-idp-authentication.html
+  # Caller credentials vs the aidevops.amazonaws.com service principal — why this
+  # role is a KMS caller when the Agent Space uses a CMK (grant owned by b5).
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-encryption-at-rest-for-devops-agent.html
   - https://docs.aws.amazon.com/IAM/latest/UserGuide/id_session-tags.html
 artifacts:
   - policies/trust-policy.json
@@ -121,8 +132,18 @@ forbidden_actions:
   - secretsmanager:PutSecretValue
   - secretsmanager:DeleteSecret
   - support:CreateCase
-  - kms:Decrypt
+  # KMS: key *administration* only. The five data-plane actions
+  # (DescribeKey/GenerateDataKey*/Decrypt/Encrypt/ReEncrypt*) are deliberately
+  # NOT forbidden here: when the Agent Space is encrypted with a CMK this role is
+  # a legitimate KMS *caller* (every synchronous Web App read/write returns a
+  # direct response to the caller), and that grant is owned by
+  # b5-customer-kms-key as a separate artifact. Key administration is denied in
+  # both topologies — it would let a Web App session escape the kms:ViaService
+  # fence or destroy every encrypted Agent Space in the account.
   - kms:PutKeyPolicy
+  - kms:CreateGrant
+  - kms:DisableKey
+  - kms:ScheduleKeyDeletion
 parliament_suppressions:
   - issue: MALFORMED
     reason: >
