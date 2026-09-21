@@ -12,12 +12,13 @@
 #    the one permission we hand-write — is probed here.
 #
 # `role_under_test` therefore names the SLR-carrying probe anchor role
-# (`slr_role_arn`), which also selects policies/slr-inline-policy.json as the
-# simulated artifact (the runner matches the tier word "slr" against artifact
-# filenames — the same mechanism b5 uses to exclude its KMS key policy). The
-# verbatim-trust Agent Space role itself is not assumable by the CI role — by
-# design: only aidevops.amazonaws.com may assume it.
+# (`slr_role_arn`). The verbatim-trust Agent Space role itself is not assumable
+# by the CI role — by design: only aidevops.amazonaws.com may assume it.
 role_under_test: slr_role_arn
+# Only the identity policy goes into PolicyInputList; the trust document is not
+# simulatable (see 1. above). The same exclusion b5 makes for its KMS key policy.
+simulate_artifacts:
+  - policies/slr-inline-policy.json
 
 probes:
   # ---- simulate: the one documented allow ----

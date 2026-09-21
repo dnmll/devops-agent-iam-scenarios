@@ -1,5 +1,5 @@
 output "operator_role_arn" {
-  description = "Probe anchor carrying policies/operator-app-policy.json; probes.yaml role_under_test points here (the 'operator' tier word also selects that artifact for simulate probes)"
+  description = "Probe anchor carrying policies/operator-app-policy.json; probes.yaml role_under_test points here (probes.yaml names that artifact in simulate_artifacts)"
   value       = module.operator_role.role_arn
 }
 

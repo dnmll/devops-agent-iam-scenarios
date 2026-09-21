@@ -3,6 +3,10 @@
 # ready to wire up when the probes schema grows multi-role support. The
 # iamscn-b7-s3 role is deployed by the same terraform harness.
 role_under_test: s3_role_arn
+# The S3 artifact alone — the cross-target denies below assert that picking the
+# S3 destination hands out neither the CloudWatch Logs nor the Firehose grants.
+simulate_artifacts:
+  - policies/s3-target.json
 
 probes:
   # ---- simulate: the DevOps Agent side — BOTH scope ARNs ----

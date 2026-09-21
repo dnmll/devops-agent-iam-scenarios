@@ -4,11 +4,12 @@
 # Firehose matrices live in probes-s3.yaml / probes-firehose.yaml, deployed by
 # the same harness. See README → "Live validation coverage".
 #
-# The tier name in `role_under_test` ("cloudwatch") also selects which artifact
-# the simulate probes evaluate (tools/probes/run_probes.py → simulated_artifacts).
-# That is what makes the cross-target denies below meaningful: they assert the
-# CloudWatch Logs artifact alone, not the union of all three.
 role_under_test: cloudwatch_role_arn
+# `simulate_artifacts` is what makes the cross-target denies below meaningful:
+# they assert the CloudWatch Logs artifact alone, not the union of all three
+# destinations. Each destination is its own deliverable — a customer attaches one.
+simulate_artifacts:
+  - policies/cloudwatch-logs-target.json
 
 probes:
   # ---- not probeable: actions missing from the IAM policy simulator ----

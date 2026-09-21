@@ -52,12 +52,13 @@
 # an action the simulator rejects returns `unverifiable`, which the runner scores
 # as a FAIL for deny expectations — see tools/probes/run_probes.py).
 #
-# `role_under_test` names the probe anchor (`operator_role_arn`); the tier word
-# "operator" also selects policies/operator-app-policy.json as the simulated
-# artifact, keeping the non-simulatable trust document out of PolicyInputList
-# (the same mechanism b3 uses for its tiers). The deliverable role itself is
-# assumable by aidevops.amazonaws.com only — by design.
+# `role_under_test` names the probe anchor (`operator_role_arn`). The deliverable
+# role itself is assumable by aidevops.amazonaws.com only — by design.
 role_under_test: operator_role_arn
+# Only the identity policy goes into PolicyInputList; the trust document is not
+# simulatable (see 1. above).
+simulate_artifacts:
+  - policies/operator-app-policy.json
 
 probes:
   # ---- no IAM at all: the Web App role cannot create, pass or re-tag roles ----

@@ -11,13 +11,15 @@
 #    repo neither copies nor probes it. Only the inline SLR grant — the one
 #    permission we hand-write — is probed.
 #
-# `role_under_test` names the SLR-carrying probe anchor role (`slr_role_arn`),
-# which also selects policies/slr-inline-policy.json as the simulated artifact
-# (the runner matches the tier word "slr" against artifact filenames). The
-# deliverable role itself is assumable by aidevops.amazonaws.com only — and, in
-# this scenario, only when driven from the monitoring account — so the CI role
+# `role_under_test` names the SLR-carrying probe anchor role (`slr_role_arn`).
+# The deliverable role itself is assumable by aidevops.amazonaws.com only — and,
+# in this scenario, only when driven from the monitoring account — so the CI role
 # can never assume it. That is the point.
 role_under_test: slr_role_arn
+# Only the identity policy goes into PolicyInputList; the trust document is not
+# simulatable (see 1. above).
+simulate_artifacts:
+  - policies/slr-inline-policy.json
 
 probes:
   # ---- simulate: the one documented allow (SLR in THIS member account) ----

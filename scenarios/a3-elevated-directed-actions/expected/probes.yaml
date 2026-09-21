@@ -13,17 +13,16 @@
 #    remediate: every probe here is `kind: simulate` against the policy
 #    artifact, so nothing outside IAM needs to exist.
 #
-# `role_under_test` names the probe anchor role (`remediation_role_arn`), whose
-# tier word "remediation" also selects policies/example-remediation-policy.json
-# as the simulated artifact (tools/probes/run_probes.py -> simulated_artifacts),
-# excluding the non-simulatable trust policy — the same mechanism a1 and b5 use.
-#
 # Resource-tag conditions are simulated by supplying the tag as a request
 # context entry (`aws:ResourceTag/DevOpsAgentRemediation`); the simulator has no
 # real resource to read tags from, which is exactly why the "tag absent" and
 # "wrong tag value" probes below matter — they assert the grant does not apply
 # when the key is missing or different.
 role_under_test: remediation_role_arn
+# Only the identity policy goes into PolicyInputList; the trust document is not
+# simulatable (see 1. above) — the same exclusion a1 and b5 make.
+simulate_artifacts:
+  - policies/example-remediation-policy.json
 
 probes:
   # ---- simulate: the two worked example allows, on an opted-in resource ----

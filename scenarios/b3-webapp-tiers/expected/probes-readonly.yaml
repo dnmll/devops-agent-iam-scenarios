@@ -4,6 +4,11 @@
 # scenario.yaml's `probes:` points at the operator matrix. Run manually with
 # `--tf-outputs` once multi-role probe support lands.
 role_under_test: readonly_role_arn
+# The three tiers are independent, standalone policies — a customer attaches one,
+# never the union. Simulating all three would grant the other two tiers' actions
+# and turn every deny expectation below into a false pass.
+simulate_artifacts:
+  - policies/readonly-policy.json
 
 probes:
   # ---- read-only CAN read ----
