@@ -1,0 +1,99 @@
+id: a3-elevated-directed-actions
+plane: A
+title: Elevated role for directed actions — trust policy + worked remediation example
+description: >
+  The elevated IAM role registered on an account association
+  (`agentElevatedRoleArn`) that AWS DevOps Agent assumes to perform
+  operator-approved directed actions — the mutating half of the agent, disabled
+  by default. Two artifacts: the trust policy, which is the a1 service-trust
+  shape plus the two extra STS actions the elevated assume-role path needs
+  (sts:SetSourceIdentity so CloudTrail attributes every action to the approving
+  operator, sts:TagSession), still closed against the confused deputy with
+  aws:SourceAccount + ArnLike aws:SourceArn; and a worked least-privilege
+  PATTERN for the permission half — two tag-gated remediation writes
+  (ec2:RebootInstances, lambda:UpdateFunctionConfiguration). The example policy
+  is a TEMPLATE customers narrow to their own runbooks, never a recommended
+  grant: this role is the ceiling of everything the agent could ever do in the
+  account, so the pattern to copy is "resource-scoped ARN + aws:ResourceTag
+  opt-in per approved runbook operation", not the action list itself.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/working-with-devops-agent-working-with-directed-actions.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/trust-policy.json
+  - policies/example-remediation-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+required_conditions:
+  # The confused-deputy pair, asserted on all three STS actions the elevated
+  # assume-role path uses. aidevops.amazonaws.com is the same principal for
+  # every AWS customer, so without aws:SourceAccount any account's Agent Space
+  # could drive this role, and without aws:SourceArn any DevOps Agent resource
+  # in *your* account could. Directed actions mutate resources, so the blast
+  # radius of a missing condition here is writes, not reads.
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceAccount
+    expected: "111122223333"
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceArn
+    expected: arn:aws:aidevops:us-east-1:111122223333:agentspace/*
+  - artifact: policies/trust-policy.json
+    action: sts:SetSourceIdentity
+    condition_key: aws:SourceAccount
+    expected: "111122223333"
+  - artifact: policies/trust-policy.json
+    action: sts:TagSession
+    condition_key: aws:SourceAccount
+    expected: "111122223333"
+  # The example policy's whole reason for existing is the shape of the guard:
+  # every mutating grant is gated on an explicit resource-tag opt-in, so adding
+  # a resource to the agent's reach is a tagging decision the resource owner
+  # makes, not an IAM edit. An edit that drops the condition (turning the
+  # template into "reboot any instance in the account") fails the checks.
+  - artifact: policies/example-remediation-policy.json
+    action: ec2:RebootInstances
+    condition_key: aws:ResourceTag/DevOpsAgentRemediation
+    expected: allowed
+  - artifact: policies/example-remediation-policy.json
+    action: lambda:UpdateFunctionConfiguration
+    condition_key: aws:ResourceTag/DevOpsAgentRemediation
+    expected: allowed
+forbidden_actions:
+  # Belt and braces. The agent's own guardrails already refuse delete-class
+  # operations, permissions-boundary mutation and anything needing
+  # iam:PassRole, and an approved action is further narrowed by a session
+  # policy — but this role is the ceiling, the guardrails are the service's to
+  # change, and a template is copied. So the irreversible and
+  # privilege-acquiring actions are asserted absent here too.
+  - iam:*
+  - kms:ScheduleKeyDeletion
+  - s3:DeleteBucket
+  - iam:PassRole
+  - iam:CreateRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:PutRolePermissionsBoundary
+  - iam:DeleteRolePermissionsBoundary
+  - ec2:TerminateInstances
+  - lambda:DeleteFunction
+  - secretsmanager:GetSecretValue
+  # Agent Space / association lifecycle is a human's job (b2): an elevated role
+  # that could rewrite the association could register itself somewhere wider.
+  - aidevops:UpdateAssociation
+  - aidevops:AssociateService
+parliament_suppressions:
+  - issue: MALFORMED
+    reason: >
+      policies/trust-policy.json is a role *trust* (assume-role) policy, not an
+      identity policy: it carries a Principal block and no Resource, which is
+      the only shape an sts:AssumeRole trust document takes. Parliament lints
+      every document as an identity policy, so it reports "Statement contains
+      neither Resource nor NotResource". Scoping here is Principal +
+      aws:SourceAccount + aws:SourceArn, all asserted by
+      check_required_conditions above (same suppression as a1).
