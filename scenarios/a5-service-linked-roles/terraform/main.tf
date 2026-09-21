@@ -24,29 +24,49 @@ provider "aws" {
 data "aws_caller_identity" "current" {}
 
 locals {
+  # One artifact per service-linked role: each correlates a single SLR ARN with
+  # its own iam:AWSServiceName, which is what makes the cross combinations (one
+  # SLR's ARN carrying the other's service name) implicitly denied.
+  artifacts = [
+    "create-metrics-slr-policy.json",
+    "create-log-delivery-slr-policy.json",
+  ]
+
   # Apply the scenario.yaml substitutions (account id, region) to the raw
-  # customer artifact. Nothing else is rewritten.
-  slr_policy_json = replace(
-    replace(
-      file("${path.module}/../policies/create-slr-policy.json"),
-      "111122223333", data.aws_caller_identity.current.account_id
-    ),
-    "us-east-1", var.region
-  )
+  # customer artifacts. Nothing else is rewritten.
+  artifact_json = [
+    for policy_file in local.artifacts : replace(
+      replace(
+        file("${path.module}/../policies/${policy_file}"),
+        "111122223333", data.aws_caller_identity.current.account_id
+      ),
+      "us-east-1", var.region
+    )
+  ]
+
+  # A customer attaches both artifacts together, so the single probe-anchor role
+  # carries both: their statements concatenated verbatim into one role policy.
+  # The simulate probes evaluate the same union (run_probes.simulated_artifacts
+  # returns all artifacts here — the tier-matching path needs a role_under_test
+  # naming one artifact, and `slr_role_arn` deliberately names neither).
+  slr_policy_json = jsonencode({
+    Version   = "2012-10-17"
+    Statement = flatten([for doc in local.artifact_json : jsondecode(doc)["Statement"]])
+  })
 }
 
 # ---------------------------------------------------------------------------
-# IAM primitives only. The two service-linked roles this policy can create are
-# deliberately NOT provisioned here: they are account-wide singletons that the
-# per-run `terraform destroy` must never delete (see
+# IAM primitives only. The two service-linked roles these policies can create
+# are deliberately NOT provisioned here: they are account-wide singletons that
+# the per-run `terraform destroy` must never delete (see
 # docs/sandbox-account.md → sweeper allowlist, and the scenario README →
 # "Never delete these"). Every probe is `kind: simulate`, so the only thing that
-# has to exist is a role carrying the artifact as its candidate policy.
+# has to exist is one role carrying both artifacts as its candidate policy.
 #
 # The permissions boundary caps this role as it does every iamscn-* role. The
 # boundary's KnownServiceLinkedRolesOnly statement already allows both
-# aidevops.amazonaws.com and delivery.logs.amazonaws.com, so the grant survives
-# the cap — and the simulate probes evaluate the artifact alone anyway (no
+# aidevops.amazonaws.com and delivery.logs.amazonaws.com, so the grants survive
+# the cap — and the simulate probes evaluate the artifacts alone anyway (no
 # boundary intersection; see .claude/rules/validation.md).
 # ---------------------------------------------------------------------------
 module "slr_role" {

@@ -1,6 +1,6 @@
 # A5 — Service-linked roles (vended metrics + log delivery)
 
-**Who this is for:** whoever onboards AWS DevOps Agent in an account, and whoever writes the cleanup automation afterwards. AWS DevOps Agent depends on **two service-linked roles (SLRs)**. This scenario is the guidance for both plus the single IAM grant that provisions them — [`policies/create-slr-policy.json`](./policies/create-slr-policy.json).
+**Who this is for:** whoever onboards AWS DevOps Agent in an account, and whoever writes the cleanup automation afterwards. AWS DevOps Agent depends on **two service-linked roles (SLRs)**. This scenario is the guidance for both plus the IAM grants that provision them — one artifact per SLR: [`policies/create-metrics-slr-policy.json`](./policies/create-metrics-slr-policy.json) and [`policies/create-log-delivery-slr-policy.json`](./policies/create-log-delivery-slr-policy.json). Attach whichever you need (usually both).
 
 An SLR is not an ordinary role. AWS owns its trust policy and its permissions, you cannot edit either, and it only exists so a service can act in your account under its own identity. That is what makes "may create these two SLRs" a small, safe grant — and why it still needs a condition (see below).
 
@@ -39,48 +39,72 @@ aws iam create-service-linked-role \
 
 The CloudWatch Logs and S3 destinations do **not** need it; see [b7](../b7-log-delivery/) for the per-destination policies.
 
-## `policies/create-slr-policy.json` — the grant
+## The grants — one artifact per service-linked role
+
+[`policies/create-metrics-slr-policy.json`](./policies/create-metrics-slr-policy.json):
 
 ```json
 {
-  "Sid": "CreateDevOpsAgentServiceLinkedRoles",
+  "Sid": "CreateDevOpsAgentMetricsServiceLinkedRole",
   "Effect": "Allow",
   "Action": "iam:CreateServiceLinkedRole",
-  "Resource": [
-    "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps",
-    "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
-  ],
+  "Resource": "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps",
   "Condition": {
-    "StringEquals": {
-      "iam:AWSServiceName": ["aidevops.amazonaws.com", "delivery.logs.amazonaws.com"]
-    }
+    "StringEquals": { "iam:AWSServiceName": "aidevops.amazonaws.com" }
+  }
+}
+```
+
+[`policies/create-log-delivery-slr-policy.json`](./policies/create-log-delivery-slr-policy.json):
+
+```json
+{
+  "Sid": "CreateLogDeliveryServiceLinkedRole",
+  "Effect": "Allow",
+  "Action": "iam:CreateServiceLinkedRole",
+  "Resource": "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery",
+  "Condition": {
+    "StringEquals": { "iam:AWSServiceName": "delivery.logs.amazonaws.com" }
   }
 }
 ```
 
 Replace `111122223333` with your account ID and `us-east-1` with your Region (SLR ARNs are not regional, but the placeholder region appears elsewhere in this repo's artifacts and the harness substitutes both).
 
-Attach it to whichever identity does onboarding — typically the [b2](../b2-installer/) installer (which already carries the metrics half) or your onboarding pipeline role. It is a **one-time** grant: once both SLRs exist, nothing in DevOps Agent needs `iam:CreateServiceLinkedRole` again, and removing it afterwards is a reasonable hardening step.
+Attach them to whichever identity does onboarding — typically the [b2](../b2-installer/) installer (which already carries the metrics half) or your onboarding pipeline role. Because they are separate artifacts you can attach only the one you need: skip the log-delivery half entirely if you never use the Firehose destination. They are **one-time** grants: once both SLRs exist, nothing in DevOps Agent needs `iam:CreateServiceLinkedRole` again, and removing them afterwards is a reasonable hardening step.
 
-**Why `iam:AWSServiceName` is mandatory.** Unconditioned, `iam:CreateServiceLinkedRole` is a *create-an-SLR-for-any-AWS-service* primitive: dozens of services, each SLR arriving with its own AWS-managed permissions policy attached, in your account, without any further approval. The condition pins it to the two services that DevOps Agent actually needs. `check_required_conditions` asserts **both** values via `scenario.yaml`, so dropping either one fails `python3 -m tools.checks`:
+**Why `iam:AWSServiceName` is mandatory.** Unconditioned, `iam:CreateServiceLinkedRole` is a *create-an-SLR-for-any-AWS-service* primitive: dozens of services, each SLR arriving with its own AWS-managed permissions policy attached, in your account, without any further approval. Each statement's condition pins it to the one service that artifact is for. `check_required_conditions` asserts **both** values via `scenario.yaml`, so dropping either one fails `python3 -m tools.checks`:
 
 ```yaml
 required_conditions:
-  - artifact: policies/create-slr-policy.json
+  - artifact: policies/create-metrics-slr-policy.json
     action: iam:CreateServiceLinkedRole
     condition_key: iam:AWSServiceName
     expected: aidevops.amazonaws.com
-  - artifact: policies/create-slr-policy.json
+  - artifact: policies/create-log-delivery-slr-policy.json
     action: iam:CreateServiceLinkedRole
     condition_key: iam:AWSServiceName
     expected: delivery.logs.amazonaws.com
 ```
 
-**Why one statement and not two.** `check_required_conditions` requires *every* Allow statement granting the action to carry the asserted value, so two per-service statements would make the two assertions mutually exclusive — each statement would fail the other's rule. One statement with a two-value condition list is exactly as tight: IAM requires the request to match both the `Resource` list **and** the condition, and the two-ARN `Resource` list is what stops a correct-name/wrong-path cross-pairing. Probes `sim-create-log-delivery-slr-with-aidevops-name-denied` and `sim-create-aidevops-slr-with-log-delivery-name-denied` assert that independently of the condition. If you prefer one statement per service in your own deployment, split it — the effective permissions are identical.
+### Why **two** statements, one per SLR — and not one statement listing both
+
+Do **not** collapse these into a single statement holding both ARNs in `Resource` and both names in one `iam:AWSServiceName` list. IAM evaluates `Resource` and `Condition` **independently**, so such a statement also authorizes the **cross** combinations:
+
+| Request | One combined statement | One statement per SLR |
+|---|---|---|
+| log-delivery SLR ARN + `iam:AWSServiceName: aidevops.amazonaws.com` | ✅ **allowed** (wrong) | ❌ implicit deny |
+| metrics SLR ARN + `iam:AWSServiceName: delivery.logs.amazonaws.com` | ✅ **allowed** (wrong) | ❌ implicit deny |
+
+An earlier revision of this scenario used the combined form, and live validation caught it — probes `sim-create-log-delivery-slr-with-aidevops-name-denied` and `sim-create-aidevops-slr-with-log-delivery-name-denied` returned `allowed`. Pairing each `Resource` ARN with **only its own** `iam:AWSServiceName` value is the only shape that **correlates** the two, which is the same reason [b5](../b5-customer-kms-key/) keeps one service-principal crypto statement per resource type instead of merging them.
+
+In practice `iam:AWSServiceName` is what IAM actually authorizes `CreateServiceLinkedRole` against, so the cross combination is not directly exploitable today — but a policy that *says* something it does not mean is a latent defect, and the correlated form costs nothing.
+
+They live in **separate artifacts** (rather than two statements in one file) because `check_required_conditions` asserts against *every* Allow statement in an artifact that grants the action: two statements in one file would make this scenario's two assertions mutually exclusive, each failing the other's rule. Split across artifacts, **both** service names stay machine-checked. Customers attach both together, and the simulate probes evaluate their union — which is exactly why the cross-pairing probes are still a meaningful test.
 
 ## Never delete these
 
-Both SLRs are **account-wide singletons with no owner**, and neither `iam:DeleteServiceLinkedRole` nor `iam:DeleteRole` appears in this artifact (both are in `forbidden_actions`). If your sweeper, teardown script or drift detector deletes them:
+Both SLRs are **account-wide singletons with no owner**, and neither `iam:DeleteServiceLinkedRole` nor `iam:DeleteRole` appears in either artifact (both are in `forbidden_actions`). If your sweeper, teardown script or drift detector deletes them:
 
 - **`AWSServiceRoleForAIDevOps`** — vended metrics stop for **every** Agent Space in the account, silently. Nothing errors; the `AWS/AIDevOps` namespace just goes quiet, and dashboards and alarms built on it flatline rather than alarm.
 - **`AWSServiceRoleForLogDelivery`** — **every** Firehose-targeted vended log delivery in the account breaks, including other AWS services' deliveries that have nothing to do with DevOps Agent.
@@ -105,6 +129,6 @@ Practical rules for cleanup automation:
 
 ## Live validation coverage
 
-`status: static`. The harness ([`terraform/`](./terraform/)) creates one `iamscn-a5-slr` role carrying the artifact as its candidate policy, and every probe in [`expected/probes.yaml`](./expected/probes.yaml) is `kind: simulate` — `iam:CreateServiceLinkedRole` is in the IAM policy simulator's action database and honours `iam:AWSServiceName`, so `SimulateCustomPolicy` answers every question this artifact raises: both allows, the condition pin (wrong service name, look-alike service name, missing context key), the resource pin (both cross-pairings, plus the Resource Explorer SLR), and the adjacent-privilege denies.
+`status: static`. The harness ([`terraform/`](./terraform/)) creates one `iamscn-a5-slr` role carrying **both** artifacts as its candidate policy (a customer attaches them together, and the simulate probes evaluate the same union), and every probe in [`expected/probes.yaml`](./expected/probes.yaml) is `kind: simulate` — `iam:CreateServiceLinkedRole` is in the IAM policy simulator's action database and honours `iam:AWSServiceName`, so `SimulateCustomPolicy` answers every question these artifacts raise: both allows, the condition pin (wrong service name, look-alike service name, missing context key), the ARN↔service-name correlation (both cross-pairings, plus the Resource Explorer SLR), and the adjacent-privilege denies.
 
 There are **no `real` probes, on purpose**. A real `CreateServiceLinkedRole` either collides with an SLR that already exists in the sandbox account (which b2's probes have exercised) or leaves behind a role the per-run `destroy` is explicitly forbidden to delete — and deleting the log-delivery SLR would break concurrent live-validate runs and any other vended delivery in the account. The IAM question is fully answered by simulation, and simulation leaves nothing behind.
