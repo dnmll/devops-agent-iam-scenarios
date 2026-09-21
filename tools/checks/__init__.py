@@ -12,6 +12,8 @@ from pathlib import Path
 
 import yaml
 
+from ..artifacts import ArtifactRef, ArtifactRefError, resolve_artifact_ref
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS_DIR = REPO_ROOT / "scenarios"
 SCHEMA_DIR = SCENARIOS_DIR / "_schema"
@@ -40,14 +42,49 @@ class Scenario:
     def id(self) -> str:
         return self.manifest.get("id", self.path.name)
 
-    def artifact_paths(self) -> list[Path]:
-        return [self.path / a for a in self.manifest.get("artifacts", [])]
+    @property
+    def scenarios_dir(self) -> Path:
+        """Root the artifact references resolve against.
 
-    def load_policies(self) -> dict[Path, dict]:
+        The parent of the scenario directory, not the module-level
+        SCENARIOS_DIR: tests build a Scenario from a copy under tmp_path, and a
+        copy's references must resolve inside the copy.
+        """
+        return self.path.parent
+
+    def artifact_refs(self) -> tuple[list[ArtifactRef], list[tuple[str, str]]]:
+        """Resolved artifact references, plus (ref, reason) pairs that would not resolve.
+
+        Unresolvable references are returned rather than raised so `check_manifest`
+        can report them as ordinary findings alongside everything else.
+        """
+        refs: list[ArtifactRef] = []
+        errors: list[tuple[str, str]] = []
+        for a in self.manifest.get("artifacts", []):
+            try:
+                refs.append(resolve_artifact_ref(a, self.path, self.scenarios_dir))
+            except ArtifactRefError as e:
+                errors.append((a, str(e)))
+        return refs, errors
+
+    def artifact_paths(self) -> list[Path]:
+        """Filesystem paths of the resolvable artifacts (unresolvable ones are
+        reported by check_manifest and skipped here)."""
+        refs, _ = self.artifact_refs()
+        return [r.path for r in refs]
+
+    def load_policies(self) -> dict[str, dict]:
+        """{artifact reference as written: parsed policy} for artifacts on disk.
+
+        Keyed by the reference string, not by path: a cross-scenario reference has
+        no path relative to this scenario's directory, and the reference is what a
+        finding or a `required_conditions` rule names.
+        """
         out = {}
-        for p in self.artifact_paths():
-            if p.is_file():
-                out[p] = json.loads(p.read_text())
+        refs, _ = self.artifact_refs()
+        for ref in refs:
+            if ref.path.is_file():
+                out[ref.ref] = json.loads(ref.path.read_text())
         return out
 
 

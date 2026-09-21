@@ -6,8 +6,14 @@
   "required": ["role_under_test", "probes"],
   "properties": {
     "role_under_test": {
-      "description": "Terraform output name holding the ARN of the role `real` probes assume; also selects the tier artifact for `simulate` probes in multi-artifact scenarios (bare output name, not a ${tf_output:...} placeholder)",
+      "description": "Terraform output name holding the ARN of the role `real` probes assume (bare output name, not a ${tf_output:...} placeholder)",
       "type": "string"
+    },
+    "simulate_artifacts": {
+      "description": "Artifact references that `simulate` probes evaluate as the PolicyInputList, relative to the scenario directory (e.g. policies/operator-policy.json, or ../b2-installer/policies/installer-policy.json for another live scenario's artifact). Omit to simulate all of scenario.yaml `artifacts`. Use it when a probes file targets one identity tier of a multi-tier scenario, or to exclude a non-simulatable resource/trust policy.",
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
     },
     "probes": {
       "type": "array",

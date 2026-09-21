@@ -9,6 +9,7 @@ import json
 
 import botocore.exceptions
 import pytest
+import yaml
 
 from tools.checks import REPO_ROOT, discover_scenarios
 from tools.probes.run_probes import (
@@ -87,6 +88,26 @@ def test_policy_inputs_empty_artifact_list_fails_loudly():
         load_policy_inputs("b2-installer", [], {})
 
 
+def test_policy_inputs_resolve_a_cross_scenario_reference():
+    """A composite scenario points at a parent's artifact rather than copying it."""
+    (via_ref,) = load_policy_inputs(
+        "b3-webapp-tiers", ["../b2-installer/policies/installer-policy.json"], B2_SUBS
+    )
+    (direct,) = load_policy_inputs("b2-installer", ["policies/installer-policy.json"], B2_SUBS)
+    assert json.loads(via_ref) == json.loads(direct)
+
+
+@pytest.mark.parametrize("bad_ref", [
+    "../../terraform/bootstrap/main.tf",   # climbs out of scenarios/
+    "../_schema/probes.schema.json",       # not a scenario directory... but is in-tree
+    "/etc/passwd",                         # absolute
+])
+def test_policy_inputs_reject_references_outside_a_scenario(bad_ref):
+    with pytest.raises(ProbeConfigError) as e:
+        load_policy_inputs("b2-installer", [bad_ref], {})
+    assert bad_ref in str(e.value)
+
+
 # ------------------------------------------------------------ artifact selection
 
 
@@ -96,26 +117,83 @@ def test_single_artifact_scenario_simulates_that_artifact():
     assert simulated_artifacts(manifest, probes_doc) == ["policies/installer-policy.json"]
 
 
-@pytest.mark.parametrize(
-    "role_output,expected",
-    [
-        ("operator_role_arn", "policies/operator-policy.json"),
-        ("admin_role_arn", "policies/admin-policy.json"),
-        ("readonly_role_arn", "policies/readonly-policy.json"),
-    ],
-)
-def test_tiered_scenario_simulates_only_the_tier_under_test(role_output, expected):
-    """b3's tiers are independent policies: simulating the union would turn
-    every deny expectation into a false pass."""
+def test_explicit_simulate_artifacts_wins_over_the_scenario_artifacts():
+    manifest = {"artifacts": ["policies/a.json", "policies/b.json", "policies/c.json"]}
+    probes_doc = {
+        "role_under_test": "b_role_arn",
+        "simulate_artifacts": ["policies/b.json"],
+    }
+    assert simulated_artifacts(manifest, probes_doc) == ["policies/b.json"]
+
+
+def test_explicit_simulate_artifacts_may_name_several_and_keeps_its_order():
+    manifest = {"artifacts": ["policies/a.json", "policies/b.json", "policies/c.json"]}
+    probes_doc = {
+        "role_under_test": "composite_role_arn",
+        "simulate_artifacts": ["policies/c.json", "policies/a.json"],
+    }
+    assert simulated_artifacts(manifest, probes_doc) == ["policies/c.json", "policies/a.json"]
+
+
+def test_explicit_simulate_artifacts_may_reference_another_scenario():
+    manifest = {"artifacts": ["policies/own.json"]}
+    probes_doc = {
+        "role_under_test": "installer_role_arn",
+        "simulate_artifacts": [
+            "policies/own.json",
+            "../b2-installer/policies/installer-policy.json",
+        ],
+    }
+    assert simulated_artifacts(manifest, probes_doc) == probes_doc["simulate_artifacts"]
+
+
+def test_no_simulate_artifacts_defaults_to_all_scenario_artifacts():
+    """A customer attaches a scenario's policies together — that's the default.
+
+    Nothing about `role_under_test` narrows the set: the runner never guesses
+    which artifact a probes file means (a guess would report real grants as
+    false implicitDenies).
+    """
+    manifest = {"artifacts": ["policies/a.json", "policies/operator-policy.json"]}
+    got = simulated_artifacts(manifest, {"role_under_test": "operator_role_arn"})
+    assert got == ["policies/a.json", "policies/operator-policy.json"]
+
+
+def test_role_under_test_no_longer_selects_an_artifact_by_filename():
+    """The removed heuristic: `operator_role_arn` must not pick operator-policy.json."""
     scenario = next(s for s in discover_scenarios() if s.id == "b3-webapp-tiers")
-    assert simulated_artifacts(scenario.manifest, {"role_under_test": role_output}) == [expected]
+    got = simulated_artifacts(scenario.manifest, {"role_under_test": "operator_role_arn"})
+    assert got == scenario.manifest["artifacts"]
 
 
-def test_multi_artifact_scenario_without_tier_match_uses_all_artifacts():
-    """A customer attaches a scenario's policies together — that's the default."""
-    manifest = {"artifacts": ["policies/a.json", "policies/b.json"]}
-    got = simulated_artifacts(manifest, {"role_under_test": "installer_role_arn"})
-    assert got == ["policies/a.json", "policies/b.json"]
+@pytest.mark.parametrize("probes_file,expected", [
+    ("expected/probes.yaml", "policies/operator-policy.json"),
+    ("expected/probes-admin.yaml", "policies/admin-policy.json"),
+    ("expected/probes-readonly.yaml", "policies/readonly-policy.json"),
+])
+def test_b3_probes_files_declare_their_own_tier(probes_file, expected):
+    """b3's tiers are independent policies: simulating the union would turn every
+    deny expectation into a false pass, so each file declares its tier."""
+    scenario = next(s for s in discover_scenarios() if s.id == "b3-webapp-tiers")
+    probes_doc = yaml.safe_load((scenario.path / probes_file).read_text())
+    assert simulated_artifacts(scenario.manifest, probes_doc) == [expected]
+
+
+def test_every_probes_file_simulates_exactly_one_policy_kind_it_declares():
+    """Regression net for the heuristic removal: every probes file in the repo
+    must resolve to a simulate set that is a subset of its scenario's artifacts,
+    and must load as valid JSON policies."""
+    for scenario in discover_scenarios():
+        for probes_path in sorted((scenario.path / "expected").glob("*.yaml")):
+            probes_doc = yaml.safe_load(probes_path.read_text())
+            artifacts = simulated_artifacts(scenario.manifest, probes_doc)
+            assert artifacts, f"{scenario.id}/{probes_path.name} simulates nothing"
+            assert set(artifacts) <= set(scenario.manifest["artifacts"]), (
+                f"{scenario.id}/{probes_path.name} simulates an artifact the "
+                "scenario does not declare"
+            )
+            for policy in load_policy_inputs(scenario.id, artifacts, {}):
+                assert json.loads(policy)["Statement"]
 
 
 # ------------------------------------------------------------------ simulate call

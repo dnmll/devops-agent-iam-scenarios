@@ -11,7 +11,12 @@
     "description": { "type": "string" },
     "status": { "enum": ["planned", "draft", "static", "live"] },
     "docs": { "type": "array", "items": { "type": "string", "format": "uri" }, "minItems": 1 },
-    "artifacts": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "artifacts": {
+      "description": "Artifact references relative to the scenario directory (e.g. policies/installer-policy.json). A composite scenario may reference another scenario's artifact as ../<scenario-id>/policies/<file>.json; the referenced scenario must exist, be status: live, and declare the artifact itself (check_manifest enforces this). References must resolve inside scenarios/.",
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
     "terraform_dir": { "type": "string", "default": "terraform" },
     "probes": { "type": "string" },
     "substitutions": { "type": "object", "additionalProperties": { "type": "string" } },
