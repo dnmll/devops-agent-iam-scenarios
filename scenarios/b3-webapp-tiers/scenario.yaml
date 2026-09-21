@@ -9,7 +9,7 @@ description: >
   (Get*/List*/Describe* only). These are end-user tiers — they contain no IAM
   permissions, so they cannot create or pass roles; Agent Space provisioning
   stays in b1/b2.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/about-aws-devops-agent-managing-assets.html

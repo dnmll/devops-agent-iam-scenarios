@@ -8,7 +8,7 @@ description: >
   to the DevOpsAgentRole-* name prefix and policy attachment is pinned to the two
   documented AWS managed policies. Deliberately grants no iam:PassRole and no
   aidevops actions — this is the other half of the split duty, not an installer.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-creating-an-agent-space.html

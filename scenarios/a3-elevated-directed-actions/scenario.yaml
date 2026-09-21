@@ -16,7 +16,7 @@ description: >
   grant: this role is the ceiling of everything the agent could ever do in the
   account, so the pattern to copy is "resource-scoped ARN + aws:ResourceTag
   opt-in per approved runbook operation", not the action list itself.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/working-with-devops-agent-working-with-directed-actions.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html

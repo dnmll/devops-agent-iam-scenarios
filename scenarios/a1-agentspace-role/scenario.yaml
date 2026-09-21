@@ -13,7 +13,7 @@ description: >
   the AWS managed policy AIDevOpsAgentAccessPolicy (attached by ARN, never
   copied into this repo — it is 30KB+ and AWS revises it), or the
   restricted-template variant for customers who need a narrower read surface.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-creating-an-agent-space.html

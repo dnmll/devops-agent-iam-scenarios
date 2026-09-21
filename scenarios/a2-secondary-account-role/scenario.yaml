@@ -15,7 +15,7 @@ description: >
   Two placeholders are therefore in play: 222233334444 is the monitoring
   (primary) account that hosts the Agent Space, 111122223333 is the member
   account this role and its Resource Explorer SLR live in.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-limiting-agent-access-in-an-aws-account.html

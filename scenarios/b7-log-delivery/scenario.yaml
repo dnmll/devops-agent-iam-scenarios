@@ -12,7 +12,7 @@ description: >
   Get/Describe/Delete/Update siblings), and then only the destination-side
   permissions that its own target requires. The configurer turns delivery on;
   it cannot create Agent Spaces, register services or read any delivered log.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-vended-logs-and-metrics.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html

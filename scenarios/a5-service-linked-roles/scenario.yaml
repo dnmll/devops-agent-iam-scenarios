@@ -15,7 +15,7 @@ description: >
   iam:AWSServiceName value, so each service name can only ever create its own
   role — never the other one, and never a create-an-SLR-for-any-service
   primitive.
-status: static
+status: live
 docs:
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-vended-logs-and-metrics.html
   - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
