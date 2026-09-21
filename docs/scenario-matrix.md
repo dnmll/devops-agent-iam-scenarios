@@ -10,7 +10,7 @@ Status: `planned` → `draft` (artifacts sketched) → `static` (checks green) �
 | `a2-secondary-account-role` | Secondary account role (cross-account) | Same permission shape as a1, trust scoped to the Agent Space in the monitoring account | planned |
 | `a3-elevated-directed-actions` | Elevated role for directed actions | Pattern + worked example for operator-approved remediation writes | planned |
 | `a4-operator-webapp-role` | Operator Web App role | `AIDevOpsOperatorAppAccessPolicy`-derived, session-tag (`AgentSpaceId`) scoped | planned |
-| `a5-service-linked-roles` | Service-linked roles | `AWSServiceRoleForAIDevOps` (vended metrics) + `AWSServiceRoleForLogDelivery` (Firehose logs) creation guidance | planned |
+| `a5-service-linked-roles` | Service-linked roles | `AWSServiceRoleForAIDevOps` (vended metrics, `AWS/AIDevOps` namespace) + `AWSServiceRoleForLogDelivery` (Firehose logs) creation guidance; one `iam:CreateServiceLinkedRole` artifact per role, each pinning its own SLR ARN to its own `iam:AWSServiceName`, plus the never-delete-these cleanup rules | static |
 
 ## Plane B — human / CI identities
 

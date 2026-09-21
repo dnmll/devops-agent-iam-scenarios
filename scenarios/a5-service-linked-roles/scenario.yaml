@@ -1,0 +1,87 @@
+id: a5-service-linked-roles
+plane: A
+title: Service-linked roles — AWSServiceRoleForAIDevOps (metrics) + AWSServiceRoleForLogDelivery
+description: >
+  The two service-linked roles AWS DevOps Agent depends on, and the one grant
+  that provisions them. AWSServiceRoleForAIDevOps is what the service uses to
+  publish its vended metrics into the AWS/AIDevOps namespace; it is created
+  automatically during Agent Space creation, so the identity running that call
+  needs iam:CreateServiceLinkedRole for aidevops.amazonaws.com or the call fails
+  with InvalidParameterException. AWSServiceRoleForLogDelivery is what the AWS
+  log-delivery service assumes to write vended logs into an Amazon Data Firehose
+  stream (Firehose has no resource policy, so the CloudWatch Logs / S3
+  bucket-policy route is unavailable). One artifact per service-linked role, each
+  a single statement pairing exactly one SLR ARN with its own
+  iam:AWSServiceName value, so each service name can only ever create its own
+  role — never the other one, and never a create-an-SLR-for-any-service
+  primitive.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-vended-logs-and-metrics.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-devops-agent-iam-permissions.html
+artifacts:
+  - policies/create-metrics-slr-policy.json
+  - policies/create-log-delivery-slr-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  "111122223333": "${account_id}"
+  "us-east-1": "${region}"
+required_conditions:
+  # iam:AWSServiceName is the entire least-privilege story of these artifacts:
+  # without it, iam:CreateServiceLinkedRole creates a service-linked role for ANY
+  # AWS service, each arriving with its own AWS-managed permissions. Two
+  # assertions, one per service name, each against its own artifact — so dropping
+  # either condition fails `python3 -m tools.checks`.
+  #
+  # Why one artifact (one statement) per service-linked role, and not a single
+  # statement listing both ARNs and both service names: IAM evaluates Resource
+  # and Condition independently, so a two-ARN/two-name statement also allows the
+  # CROSS combinations (the log-delivery SLR ARN with
+  # iam:AWSServiceName=aidevops.amazonaws.com, and vice versa) — live-validate
+  # caught exactly that as 2 deny probes returning `allowed`. Correlating each
+  # ARN with its own service name requires one statement per SLR. They live in
+  # separate artifacts because check_required_conditions asserts against EVERY
+  # matching Allow statement in an artifact, so two statements in one file would
+  # make these two assertions mutually exclusive (each would fail the other's
+  # rule). Same split-for-correlation reason as b5's two service-principal
+  # crypto statements. Customers attach both artifacts together; the simulate
+  # probes evaluate their union, which is why the cross-pairing probes still
+  # prove the deny.
+  - artifact: policies/create-metrics-slr-policy.json
+    action: iam:CreateServiceLinkedRole
+    condition_key: iam:AWSServiceName
+    expected: aidevops.amazonaws.com
+  - artifact: policies/create-log-delivery-slr-policy.json
+    action: iam:CreateServiceLinkedRole
+    condition_key: iam:AWSServiceName
+    expected: delivery.logs.amazonaws.com
+forbidden_actions:
+  # This artifact exists for exactly one grant. Creating a service-linked role is
+  # not role administration: an SLR's trust policy and permissions are fixed by
+  # AWS and cannot be edited, which is what makes the grant safe. Ordinary role
+  # and policy CRUD is the pre-provisioner's (b1), passing roles to the service
+  # is the installer's (b2).
+  - iam:CreateRole
+  - iam:DeleteRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:UpdateAssumeRolePolicy
+  - iam:PutRolePermissionsBoundary
+  - iam:DeleteRolePermissionsBoundary
+  - iam:PassRole
+  - iam:CreateUser
+  - iam:CreateAccessKey
+  # Deleting a service-linked role is never part of this deliverable: both SLRs
+  # are account-wide singletons that other Agent Spaces and other deliveries
+  # depend on (see README → "Never delete these").
+  - iam:DeleteServiceLinkedRole
+  # Agent Space lifecycle is b2, vended log delivery configuration is b7, and
+  # nothing here touches the data planes those wire up.
+  - aidevops:*
+  - logs:PutDeliverySource
+  - logs:PutDeliveryDestination
+  - logs:CreateDelivery
+  - firehose:PutRecord
+  - firehose:PutRecordBatch
+  - cloudwatch:PutMetricData

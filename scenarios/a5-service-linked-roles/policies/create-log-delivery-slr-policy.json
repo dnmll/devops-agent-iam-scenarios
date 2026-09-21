@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CreateLogDeliveryServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "delivery.logs.amazonaws.com"
+        }
+      }
+    }
+  ]
+}
