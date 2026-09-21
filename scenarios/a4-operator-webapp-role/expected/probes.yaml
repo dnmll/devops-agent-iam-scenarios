@@ -115,9 +115,11 @@ probes:
     expect: implicitDeny
 
   # ---- no Operator App configuration from inside the Operator App ----
-  # Enabling/disabling the Web App and pointing it at an IdP is the installer's
-  # (b2) grant. If the Web App role held it, a Web App session could repoint the
-  # IdP that decides who gets which AgentSpaceId session tag.
+  # Enabling/disabling the Web App and pointing it at an IdP (or connecting IAM
+  # Identity Center) is the installer's (b2) grant. IdP configuration is
+  # per-Agent-Space, on the space's Access tab, so it is the thing that decides
+  # who may log in to this Agent Space at all — a Web App session that could
+  # repoint it could grant itself a new population of operators.
   - name: sim-enable-operator-app-denied
     kind: simulate
     action: aidevops:EnableOperatorApp
@@ -172,9 +174,44 @@ probes:
     resource: "*"
     expect: implicitDeny
 
-  # ---- no KMS data-plane access (that is b5's caller policy) ----
-  - name: sim-kms-decrypt-denied
+  # ---- KMS: key ADMINISTRATION only, never the data plane ----
+  # There used to be a `sim-kms-decrypt-denied` probe here, asserting "no KMS
+  # data-plane access". A live deployment with a CMK-encrypted Agent Space proved
+  # that wrong: the encryption-at-rest page splits key access into *caller
+  # credentials* ("all synchronous operations ... and any API call that returns a
+  # direct response to the caller") and the aidevops.amazonaws.com service
+  # principal (async background work). Every synchronous Web App read/write is a
+  # caller-credentials operation performed by THIS role, so with a CMK it
+  # legitimately needs kms:DescribeKey / GenerateDataKey* / Decrypt / Encrypt /
+  # ReEncrypt* (fenced with kms:ViaService) — a grant owned by
+  # b5-customer-kms-key, not by this scenario. Asserting any of those five denied
+  # here would be asserting the CMK topology is broken.
+  #
+  # What IS denied in BOTH topologies (AWS owned key and CMK) is key
+  # administration: a Web App session that could rewrite the key policy, hand out
+  # grants, disable the key or schedule it for deletion could either escape the
+  # kms:ViaService fence or destroy every encrypted Agent Space in the account.
+  # None of the four is in the encryption-at-rest page's required-action table,
+  # and b5 forbids them on the caller side too.
+  - name: sim-kms-schedule-key-deletion-denied
     kind: simulate
-    action: kms:Decrypt
+    action: kms:ScheduleKeyDeletion
+    resource: "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555"
+    expect: implicitDeny
+  - name: sim-kms-put-key-policy-denied
+    kind: simulate
+    action: kms:PutKeyPolicy
+    resource: "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555"
+    expect: implicitDeny
+  - name: sim-kms-disable-key-denied
+    kind: simulate
+    action: kms:DisableKey
+    resource: "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555"
+    expect: implicitDeny
+  # A grant re-delegates use of the key to another principal *without* the
+  # kms:ViaService fence — straight around the caller policy b5 ships.
+  - name: sim-kms-create-grant-denied
+    kind: simulate
+    action: kms:CreateGrant
     resource: "arn:aws:kms:us-east-1:111122223333:key/11111111-2222-3333-4444-555555555555"
     expect: implicitDeny
