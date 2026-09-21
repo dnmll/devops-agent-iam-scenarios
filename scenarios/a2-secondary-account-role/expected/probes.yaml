@@ -1,0 +1,131 @@
+# Simulate-only scenario, for the same two structural reasons as a1:
+#
+# 1. policies/trust-policy.json is a role *trust* policy (Principal, no
+#    Resource). iam:SimulateCustomPolicy only accepts identity policies, so the
+#    trust document is validated statically (`check_required_conditions` asserts
+#    both confused-deputy keys, pinned to the MONITORING account 222233334444)
+#    and by terraform creating the role with it verbatim. See README ->
+#    "Live validation coverage".
+# 2. The role's permission surface is the AWS managed policy
+#    AIDevOpsAgentAccessPolicy, attached by ARN. AWS owns and revises it; this
+#    repo neither copies nor probes it. Only the inline SLR grant — the one
+#    permission we hand-write — is probed.
+#
+# `role_under_test` names the SLR-carrying probe anchor role (`slr_role_arn`),
+# which also selects policies/slr-inline-policy.json as the simulated artifact
+# (the runner matches the tier word "slr" against artifact filenames). The
+# deliverable role itself is assumable by aidevops.amazonaws.com only — and, in
+# this scenario, only when driven from the monitoring account — so the CI role
+# can never assume it. That is the point.
+role_under_test: slr_role_arn
+
+probes:
+  # ---- simulate: the one documented allow (SLR in THIS member account) ----
+  # Note the account id: the SLR path is the member account's
+  # (111122223333 -> sandbox account id), not the monitoring account's. A
+  # cross-account copy-paste that left the monitoring account id in this ARN
+  # would deny, and this probe is what catches it.
+  - name: sim-create-resource-explorer-slr
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    context:
+      iam:AWSServiceName: resource-explorer-2.amazonaws.com
+    expect: allowed
+
+  # ---- simulate: the SLR path really is member-account-scoped ----
+  # The monitoring account has its own role and its own SLR (a1's); this role
+  # must not be able to create one there.
+  - name: sim-create-slr-in-monitoring-account-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::222233334444:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    context:
+      iam:AWSServiceName: resource-explorer-2.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: the iam:AWSServiceName pin (least-privilege proof) ----
+  # Without the condition, iam:CreateServiceLinkedRole is a create-an-SLR-for-
+  # any-service primitive; lambda is the canonical counter-example.
+  - name: sim-create-slr-for-lambda-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    context:
+      iam:AWSServiceName: lambda.amazonaws.com
+    expect: implicitDeny
+  # The DevOps Agent metrics SLR (AWSServiceRoleForAIDevOps) belongs to the
+  # monitoring account, created once at onboarding by the installer (b2). A
+  # secondary account never creates it.
+  - name: sim-create-slr-for-aidevops-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  # Correct service name, different SLR path: resource scoping is real in its
+  # own right.
+  - name: sim-create-slr-other-path-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: resource-explorer-2.amazonaws.com
+    expect: implicitDeny
+  # No iam:AWSServiceName in the request context at all (the condition cannot
+  # match, so the grant does not apply).
+  - name: sim-create-slr-without-service-name-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    expect: implicitDeny
+
+  # ---- simulate: the inline policy grants nothing else ----
+  # Role lifecycle in the member account is the member account admin's job, not
+  # this role's; the inline policy is one grant wide.
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentCrossAccountRole"
+    expect: implicitDeny
+  - name: sim-attach-role-policy-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentCrossAccountRole"
+    expect: implicitDeny
+  # Self-escalation guard, and it matters more here than in a1: rewriting this
+  # role's own trust policy would mean repointing aws:SourceAccount at any
+  # other monitoring account.
+  - name: sim-update-assume-role-policy-denied
+    kind: simulate
+    action: iam:UpdateAssumeRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentCrossAccountRole"
+    expect: implicitDeny
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentCrossAccountRole"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  # A secondary account's role is investigated, never an aidevops control-plane
+  # caller: the Agent Space lives in the monitoring account and this role has no
+  # aidevops surface at all.
+  - name: sim-associate-service-denied
+    kind: simulate
+    action: aidevops:AssociateService
+    resource: "arn:aws:aidevops:us-east-1:222233334444:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  # Integration credentials are read by the service in the monitoring account
+  # under its own managed policy; the inline artifact adds no data-plane read.
+  - name: sim-get-secret-value-denied
+    kind: simulate
+    action: secretsmanager:GetSecretValue
+    resource: "*"
+    expect: implicitDeny

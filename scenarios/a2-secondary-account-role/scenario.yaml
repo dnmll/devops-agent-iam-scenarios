@@ -1,0 +1,90 @@
+id: a2-secondary-account-role
+plane: A
+title: Secondary account role (cross-account) — trust policy + Resource Explorer SLR inline
+description: >
+  The a1 role, created in a *secondary* (member/source) account so the Agent
+  Space in the monitoring account can investigate it. Same two artifacts and the
+  same permission shape as a1 — trust policy plus the one inline
+  iam:CreateServiceLinkedRole grant the AWS managed policy does not carry — with
+  one deliberate difference that is the whole scenario: the confused-deputy pair
+  (aws:SourceAccount + ArnLike aws:SourceArn) names the MONITORING account, not
+  the account the role lives in. There is no cross-account principal and no
+  ExternalId: aidevops.amazonaws.com assumes this role directly, so the only
+  thing that stops another customer's Agent Space from reading this member
+  account is those two condition values pointing at your monitoring account.
+  Two placeholders are therefore in play: 222233334444 is the monitoring
+  (primary) account that hosts the Agent Space, 111122223333 is the member
+  account this role and its Resource Explorer SLR live in.
+status: static
+docs:
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/getting-started-with-aws-devops-agent-cli-onboarding-guide.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/aws-devops-agent-security-limiting-agent-access-in-an-aws-account.html
+  - https://docs.aws.amazon.com/devopsagent/latest/userguide/configuring-integrations-and-knowledge-vended-logs-and-metrics.html
+artifacts:
+  - policies/trust-policy.json
+  - policies/slr-inline-policy.json
+terraform_dir: terraform
+probes: expected/probes.yaml
+substitutions:
+  # 111122223333 — the MEMBER (secondary/source) account: where this role, the
+  # resources under investigation and the Resource Explorer SLR live. The
+  # sandbox account plays this part, so it maps to the real account id.
+  "111122223333": "${account_id}"
+  # 222233334444 — the MONITORING (primary) account that hosts the Agent Space.
+  # Deliberately NOT substituted: the sandbox is a single account, and rewriting
+  # this to the sandbox id would collapse the cross-account trust back into a1's
+  # same-account trust and stop testing the artifact. aws:SourceAccount /
+  # aws:SourceArn are string conditions, so IAM accepts a foreign (even
+  # non-existent) account id in them — which is what makes the live apply
+  # evidence for a genuinely cross-account trust document.
+  "us-east-1": "${region}"
+required_conditions:
+  # Same pair as a1, different expected values — and here the account-id half is
+  # load-bearing in a way it is not in a1. This role lives in a DIFFERENT account
+  # from the Agent Space that drives it, so aws:SourceAccount cannot simply be
+  # "this account": it must be the monitoring account. Asserting the literal
+  # 222233334444 is what stops a copy-paste of a1's trust policy (which would
+  # name the member account and deny every legitimate assume) from landing here.
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceAccount
+    expected: "222233334444"
+  - artifact: policies/trust-policy.json
+    action: sts:AssumeRole
+    condition_key: aws:SourceArn
+    expected: arn:aws:aidevops:us-east-1:222233334444:agentspace/*
+  # The SLR is created in THIS (member) account, so the inline grant keeps the
+  # local account id — and iam:AWSServiceName keeps it from being a
+  # create-any-service-linked-role primitive.
+  - artifact: policies/slr-inline-policy.json
+    action: iam:CreateServiceLinkedRole
+    condition_key: iam:AWSServiceName
+    expected: resource-explorer-2.amazonaws.com
+forbidden_actions:
+  # Identical to a1: the inline policy exists for exactly one grant. Nothing
+  # hand-written here may widen the service's read surface (that is
+  # AIDevOpsAgentAccessPolicy's job, attached by ARN), and a role in a member
+  # account must not carry IAM write or credential-read primitives.
+  - iam:CreateRole
+  - iam:DeleteRole
+  - iam:AttachRolePolicy
+  - iam:PutRolePolicy
+  - iam:UpdateAssumeRolePolicy
+  - iam:PutRolePermissionsBoundary
+  - iam:DeleteRolePermissionsBoundary
+  - iam:PassRole
+  - iam:CreateUser
+  - iam:CreateAccessKey
+  - aidevops:*
+  - secretsmanager:GetSecretValue
+  - kms:PutKeyPolicy
+parliament_suppressions:
+  - issue: MALFORMED
+    reason: >
+      policies/trust-policy.json is a role *trust* (assume-role) policy, not an
+      identity policy: it carries a Principal block and no Resource, which is
+      the only shape sts:AssumeRole trust documents take. Parliament lints every
+      document as an identity policy, so it reports "Statement contains neither
+      Resource nor NotResource". Scoping here is done by Principal +
+      aws:SourceAccount + aws:SourceArn (pinned to the monitoring account),
+      which `check_required_conditions` asserts (see required_conditions above).
