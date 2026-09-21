@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UseCustomerManagedKeyViaDevOpsAgent",
+      "Effect": "Allow",
+      "Action": [
+        "kms:DescribeKey",
+        "kms:GenerateDataKey*",
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:ReEncrypt*"
+      ],
+      "Resource": "arn:aws:kms:us-east-1:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": "aidevops.us-east-1.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

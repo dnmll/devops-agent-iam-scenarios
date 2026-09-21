@@ -1,9 +1,18 @@
-# Only the caller identity policy is simulatable: policies/key-policy.json is a
-# KMS *resource* policy (it carries Principal blocks), and
+# Only the caller *identity* policies are simulatable: policies/key-policy.json
+# is a KMS *resource* policy (it carries Principal blocks), and
 # iam:SimulateCustomPolicy only accepts identity policies. The probe runner picks
-# the artifact whose filename matches the tier in `role_under_test`
-# (`caller_role_arn` -> caller-policy.json), so the key policy is excluded here
-# and validated statically instead (see README -> "Live validation coverage").
+# the artifacts whose filename contains the tier in `role_under_test`
+# (`caller_role_arn` -> caller-policy.json AND webapp-caller-policy.json), so the
+# key policy is excluded here and validated statically instead (see README ->
+# "Live validation coverage").
+#
+# Every probe below is written against policies/caller-policy.json, and stays
+# correct now that webapp-caller-policy.json is also selected: the Web App policy
+# is a strict subset of the installer policy's grants (the same fenced crypto
+# statement, without the console key-picker statement), so the simulated union
+# has identical semantics. Probes that distinguish the two artifacts need the
+# explicit per-probe artifact selection the runner does not have yet — see
+# README -> "Live validation coverage".
 role_under_test: caller_role_arn
 
 probes:
