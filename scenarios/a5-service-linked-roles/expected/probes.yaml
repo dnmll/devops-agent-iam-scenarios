@@ -1,0 +1,155 @@
+# Simulate-only scenario. `iam:CreateServiceLinkedRole` is in the IAM policy
+# simulator's action database and honours the `iam:AWSServiceName` context key,
+# so SimulateCustomPolicy answers every question this artifact raises exactly.
+#
+# There are no `real` probes on purpose. Both service-linked roles are
+# account-wide singletons: a real create would either collide with the SLR that
+# already exists in the sandbox (the sandbox has run b2's probes) or leave behind
+# a role the per-run destroy is explicitly not allowed to delete — see
+# docs/sandbox-account.md → "Persistent-by-design resources (sweeper
+# allowlist)" and README → "Never delete these". Creating and then deleting the
+# metrics SLR would also break any other concurrent live-validate run.
+role_under_test: slr_role_arn
+
+probes:
+  # ---- simulate: the two documented allows (one per service-linked role) ----
+  - name: sim-create-aidevops-metrics-slr
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: allowed
+  - name: sim-create-log-delivery-slr
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: delivery.logs.amazonaws.com
+    expect: allowed
+
+  # ---- simulate: the iam:AWSServiceName pin (least-privilege proof) ----
+  # Without the condition, iam:CreateServiceLinkedRole is a
+  # create-an-SLR-for-any-service primitive; lambda is the canonical
+  # counter-example, tried against both SLR paths.
+  - name: sim-create-slr-for-lambda-on-aidevops-path-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: lambda.amazonaws.com
+    expect: implicitDeny
+  # StringEquals is exact: a look-alike service name (suffix, typo, or a
+  # same-prefix service AWS adds later) does not match.
+  - name: sim-create-slr-lookalike-service-name-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: delivery.logs.amazonaws.com.example.com
+    expect: implicitDeny
+  - name: sim-create-slr-for-lambda-own-path-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/lambda.amazonaws.com/AWSServiceRoleForLambda"
+    context:
+      iam:AWSServiceName: lambda.amazonaws.com
+    expect: implicitDeny
+  # No iam:AWSServiceName in the request context at all — the condition cannot
+  # match, so the grant does not apply.
+  - name: sim-create-slr-without-service-name-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    expect: implicitDeny
+
+  # ---- simulate: the Resource list constrains independently of the condition ----
+  # Both allowed service names are in one condition list, so the two-ARN Resource
+  # list is what stops a correct-name/wrong-path cross-pairing. These two probes
+  # are why the single-statement form is as tight as two statements would be.
+  - name: sim-create-log-delivery-slr-with-aidevops-name-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    context:
+      iam:AWSServiceName: aidevops.amazonaws.com
+    expect: implicitDeny
+  - name: sim-create-aidevops-slr-with-log-delivery-name-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    context:
+      iam:AWSServiceName: delivery.logs.amazonaws.com
+    expect: implicitDeny
+  # The Resource Explorer SLR (a1) is created by the Agent Space role itself at
+  # runtime, not by this artifact.
+  - name: sim-create-resource-explorer-slr-denied
+    kind: simulate
+    action: iam:CreateServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/resource-explorer-2.amazonaws.com/AWSServiceRoleForResourceExplorer"
+    context:
+      iam:AWSServiceName: resource-explorer-2.amazonaws.com
+    expect: implicitDeny
+
+  # ---- simulate: creating an SLR is not role administration ----
+  # An SLR's trust policy and permissions are fixed by AWS; ordinary role/policy
+  # CRUD is b1 and must not ride along here.
+  - name: sim-create-role-denied
+    kind: simulate
+    action: iam:CreateRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  - name: sim-attach-role-policy-denied
+    kind: simulate
+    action: iam:AttachRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  - name: sim-put-role-policy-denied
+    kind: simulate
+    action: iam:PutRolePolicy
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    expect: implicitDeny
+  - name: sim-passrole-denied
+    kind: simulate
+    action: iam:PassRole
+    resource: "arn:aws:iam::111122223333:role/DevOpsAgentRole-agentspace"
+    context:
+      iam:PassedToService: aidevops.amazonaws.com
+    expect: implicitDeny
+  # Deleting either SLR is never granted: both are account-wide singletons other
+  # Agent Spaces and other deliveries depend on.
+  - name: sim-delete-aidevops-slr-denied
+    kind: simulate
+    action: iam:DeleteServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/aidevops.amazonaws.com/AWSServiceRoleForAIDevOps"
+    expect: implicitDeny
+  - name: sim-delete-log-delivery-slr-denied
+    kind: simulate
+    action: iam:DeleteServiceLinkedRole
+    resource: "arn:aws:iam::111122223333:role/aws-service-role/delivery.logs.amazonaws.com/AWSServiceRoleForLogDelivery"
+    expect: implicitDeny
+
+  # ---- simulate: adjacent-privilege matrix (other scenarios' personas) ----
+  # Provisioning the SLRs is a prerequisite, not a licence: Agent Space lifecycle
+  # is b2, vended log delivery configuration is b7, and the metrics the SLR
+  # publishes are written by the service, never by this identity.
+  - name: sim-create-agentspace-denied
+    kind: simulate
+    action: aidevops:CreateAgentSpace
+    resource: "arn:aws:aidevops:us-east-1:111122223333:agentspace/probe"
+    expect: implicitDeny
+  - name: sim-put-delivery-source-denied
+    kind: simulate
+    action: logs:PutDeliverySource
+    resource: "arn:aws:logs:us-east-1:111122223333:delivery-source:devops-agent-probe"
+    expect: implicitDeny
+  - name: sim-put-metric-data-denied
+    kind: simulate
+    action: cloudwatch:PutMetricData
+    resource: "*"
+    expect: implicitDeny
+  - name: sim-get-metric-data-denied
+    kind: simulate
+    action: cloudwatch:GetMetricData
+    resource: "*"
+    expect: implicitDeny
